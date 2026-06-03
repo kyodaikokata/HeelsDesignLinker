@@ -1,0 +1,5 @@
+﻿[packager]
+include = [
+    "HeelsToggle.dll",
+    "HeelsToggle.json"
+]

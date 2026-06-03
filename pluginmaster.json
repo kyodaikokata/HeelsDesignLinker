@@ -1,0 +1,34 @@
+[
+  {
+    "Author": "KKT",
+    "Name": "Heels Design Linker",
+    "InternalName": "HeelsToggle",
+    "Punchline": "Auto-switch Glamourer designs or Penumbra mod Setting based on SimpleHeels height",
+    "Description": "根据 SimpleHeels 的实时高度自动联动切换 Glamourer 的设计或 Penumbra 的mod子选项。Automatically switches Glamourer designs or Penumbra mod settings based on SimpleHeels height detection.",
+    "ApplicableVersion": "any",
+    "Tags": [
+      "glamour",
+      "customization",
+      "automation",
+      "heels",
+      "penumbra",
+      "appearance"
+    ],
+    "CategoryTags": [
+      "utility",
+      "other"
+    ],
+    "DalamudApiLevel": 15,
+    "AssemblyVersion": "1.0.0.0",
+    "RepoUrl": "https://github.com/kyodaikokata/HeelsDesignLinker",
+    "DownloadLinkInstall": "https://github.com/kyodaikokata/HeelsDesignLinker/raw/main/plugins/HeelsToggle/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/kyodaikokata/HeelsDesignLinker/raw/main/plugins/HeelsToggle/latest.zip",
+    "DownloadLinkTesting": "https://github.com/kyodaikokata/HeelsDesignLinker/raw/main/plugins/HeelsToggle/latest.zip",
+    "IconUrl": "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/images/icon.png",
+    "LoadRequiredState": 0,
+    "LoadSync": false,
+    "CanUnloadAsync": false,
+    "LoadPriority": 0,
+    "ImageUrls": []
+  }
+]
