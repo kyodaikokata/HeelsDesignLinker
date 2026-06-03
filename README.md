@@ -32,7 +32,7 @@
 2. 点击 "Experimental（实验性）" 标签页
 3. 在 "Custom Plugin Repositories（自定义插件仓库）" 中添加以下地址：
    ```
-   https://raw.githubusercontent.com/YOUR_USERNAME/HeelsToggle/main/pluginmaster.json
+   https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/pluginmaster.json
    ```
 4. 保存并关闭设置
 5. 输入 `/xlplugins` 搜索 "Heels Design Linker"
@@ -40,7 +40,7 @@
 
 #### 方法二：手动安装
 
-1. 从 [Releases](https://github.com/YOUR_USERNAME/HeelsToggle/releases) 下载 `latest.zip`
+1. 从 [Releases](https://github.com/kyodaikokata/HeelsToggle/releases) 下载 `latest.zip`
 2. 解压到 `%AppData%\XIVLauncher\installedPlugins\HeelsToggle\`
 3. 重启游戏
 
@@ -114,8 +114,8 @@
 
 ### 🐛 问题反馈
 
-- **问题报告**：[GitHub Issues](https://github.com/YOUR_USERNAME/HeelsToggle/issues)
-- **源代码**：[GitHub Repository](https://github.com/YOUR_USERNAME/HeelsToggle)
+- **问题报告**：[GitHub Issues](https://github.com/kyodaikokata/HeelsDesignLinker/issues)
+- **源代码**：[GitHub Repository](https://github.com/kyodaikokata/HeelsDesignLinker)
 
 ### 🙏 致谢
 
@@ -124,6 +124,7 @@
 - **SimpleHeels**：[Caraxi/SimpleHeels](https://github.com/Caraxi/SimpleHeels)
 - **Glamourer**：[Ottermandias/Glamourer](https://github.com/Ottermandias/Glamourer)
 - **Penumbra**：[xivdev/Penumbra](https://github.com/xivdev/Penumbra)
+- **Immersive Footsteps**:[XIVModArchive](https://www.xivmodarchive.com/modid/95777)
 
 ### 📄 开源许可
 
@@ -171,7 +172,7 @@ A Dalamud plugin that automatically switches Glamourer designs or Penumbra mod s
 2. Go to "Experimental" tab
 3. Add this URL to "Custom Plugin Repositories":
    ```
-   https://raw.githubusercontent.com/YOUR_USERNAME/HeelsToggle/main/pluginmaster.json
+   https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/pluginmaster.json
    ```
 4. Save and close settings
 5. Type `/xlplugins` and search for "Heels Design Linker"
@@ -179,7 +180,7 @@ A Dalamud plugin that automatically switches Glamourer designs or Penumbra mod s
 
 #### Method 2: Manual Installation
 
-1. Download `latest.zip` from [Releases](https://github.com/YOUR_USERNAME/HeelsToggle/releases)
+1. Download `latest.zip` from [Releases](https://github.com/kyodaikokata/HeelsDesignLinker/releases)
 2. Extract to `%AppData%\XIVLauncher\installedPlugins\HeelsToggle\`
 3. Restart the game
 
@@ -234,8 +235,8 @@ Configure mod settings:
 
 ### 🐛 Support
 
-- **Issues**: [GitHub Issues](https://github.com/YOUR_USERNAME/HeelsToggle/issues)
-- **Source Code**: [GitHub Repository](https://github.com/YOUR_USERNAME/HeelsToggle)
+- **Issues**: [GitHub Issues](https://github.com/kyodaikokata/HeelsDesignLinker/issues)
+- **Source Code**: [GitHub Repository](https://github.com/kyodaikokata/HeelsDesignLinker)
 
 ### 🙏 Credits
 
@@ -244,6 +245,7 @@ Configure mod settings:
 - **SimpleHeels**: [Caraxi/SimpleHeels](https://github.com/Caraxi/SimpleHeels)
 - **Glamourer**: [Ottermandias/Glamourer](https://github.com/Ottermandias/Glamourer)
 - **Penumbra**: [xivdev/Penumbra](https://github.com/xivdev/Penumbra)
+- **Immersive Footsteps**:[XIVModArchive](https://www.xivmodarchive.com/modid/95777)
 
 ### 📄 License
 
