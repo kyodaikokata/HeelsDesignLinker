@@ -12,9 +12,12 @@
 
 - 🔄 **双模式支持**：同时支持 Glamourer 和 Penumbra 两种模式
 - 📏 **高度规则**：自定义高度范围，实现自动切换
+- 🟢 **规则高亮**：当前高度匹配的规则以绿色高亮，便于确认
 - ⚙️ **灵活配置**：可调节小数精度和规则管理
 - 🎯 **实时检测**：即时响应 SimpleHeels 高度变化
 - 🌐 **IPC 集成**：与 SimpleHeels 插件无缝通信
+- 🌐 **中英文界面**：随系统语言自动切换
+- 📜 **更新履历**：插件内可查看版本更新记录
 
 ### 📋 前置要求
 
@@ -48,7 +51,7 @@
 
 #### 快速开始
 
-1. 打开插件配置：`/hgl`
+1. 打开插件配置：`/hdl` 或 `/heelsdesign`
 2. 选择模式：
    - **Glamourer 模式**：自动应用 Glamourer 设计
    - **Penumbra 模式**：自动切换 Penumbra Mod 设置
@@ -60,10 +63,12 @@
 为不同高度范围配置设计名称：
 
 ```
-高度 -1.00 ~ -0.01 → 设计: "SFX_赤足"
-高度 -0.01 ~ 0.05  → 设计: "SFX_平底鞋"
-高度  0.05 ~ 99.00 → 设计: "SFX_高跟鞋"
+高度 -1.00 ~ -0.01   → 设计: "SFX_Barefoot"
+高度 -0.009 ~ 0.03   → 设计: "SFX_Shoes"
+高度  0.031 ~ 1.00   → 设计: "SFX_Heels"
 ```
+
+首次安装时会自动创建以上默认规则（可在设置中修改）。
 
 **示例配置：**
 - 使用 Glamourer 创建不同的外观设计
@@ -75,9 +80,8 @@
 配置 Mod 设置：
 
 1. **全局设置：**
-   - 集合（Collection）：`Default`
-   - Mod 名称：`Immersive Footsteps`（沉浸式脚步声）
-   - 选项（Option）：`Footsteps`
+   - 集合（Collection）：`Default`（首次安装默认）
+   - Mod 名称、选项：留空，按你的 Mod 自行填写
 
 2. **为每条规则设置选项名称：**
    - `Barefoot`（赤足）
@@ -103,6 +107,10 @@
 - 测试 IPC 连接
 - 查看命令示例
 - 检查插件状态
+
+#### 更新履历标签页
+
+- 查看各版本更新内容（与 README 更新日志同步）
 
 ### 💡 使用技巧
 
@@ -132,6 +140,16 @@
 
 ### 📝 更新日志
 
+#### 版本 1.0.1
+
+- 游戏内命令：`/hdl`、`/heelsdesign`（打开配置窗口）
+- 新增「更新履历」标签页
+- 修复插件加载顺序，启动后无需再手动开关即可识别依赖
+- 当前匹配规则绿色高亮显示
+- 界面中英文本地化（随系统语言）
+- 默认高度规则：`-1～-0.01`、`-0.009～0.03`、`0.031～1.0`
+- Penumbra 默认 Collection 为 `Default`，Mod / Option 默认为空
+
 #### 版本 1.0.0
 
 - 首次发布
@@ -152,9 +170,12 @@ A Dalamud plugin that automatically switches Glamourer designs or Penumbra mod s
 
 - 🔄 **Dual Mode Support**: Works with both Glamourer and Penumbra
 - 📏 **Height-based Rules**: Define custom height ranges for automatic switching
+- 🟢 **Rule Highlight**: Matched rule highlighted in green for easy verification
 - ⚙️ **Flexible Configuration**: Adjustable decimal precision and rule management
 - 🎯 **Real-time Detection**: Instant response to SimpleHeels height changes
 - 🌐 **IPC Integration**: Seamless communication with SimpleHeels plugin
+- 🌐 **Localization**: Chinese / English UI based on system language
+- 📜 **Changelog Tab**: View version history in-game
 
 ### 📋 Requirements
 
@@ -188,7 +209,7 @@ A Dalamud plugin that automatically switches Glamourer designs or Penumbra mod s
 
 #### Quick Start
 
-1. Open plugin configuration: `/hgl`
+1. Open plugin configuration: `/hdl` or `/heelsdesign`
 2. Choose your mode:
    - **Glamourer Mode**: Auto-apply Glamourer designs
    - **Penumbra Mode**: Auto-switch Penumbra mod settings
@@ -200,19 +221,20 @@ A Dalamud plugin that automatically switches Glamourer designs or Penumbra mod s
 Configure design names for different height ranges:
 
 ```
-Height -1.00 ~ -0.01 → Design: "SFX_Barefoot"
-Height -0.01 ~ 0.05  → Design: "SFX_Shoes"
-Height  0.05 ~ 99.00 → Design: "SFX_Heels"
+Height -1.00 ~ -0.01   → Design: "SFX_Barefoot"
+Height -0.009 ~ 0.03   → Design: "SFX_Shoes"
+Height  0.031 ~ 1.00   → Design: "SFX_Heels"
 ```
+
+Default rules are created on first run (editable in settings).
 
 #### Penumbra Mode
 
 Configure mod settings:
 
 1. Set global settings:
-   - Collection: `Default`
-   - Mod Name: `Immersive Footsteps`
-   - Option: `Footsteps`
+   - Collection: `Default` (default on first install)
+   - Mod Name and Option: leave empty and fill in per your mod
 2. Set option names for each rule:
    - `Barefoot`
    - `Shoes`
@@ -233,6 +255,10 @@ Configure mod settings:
 - View command examples
 - Check plugin status
 
+#### Changelog Tab
+
+- View release notes for each version
+
 ### 🐛 Support
 
 - **Issues**: [GitHub Issues](https://github.com/kyodaikokata/HeelsDesignLinker/issues)
@@ -252,6 +278,16 @@ Configure mod settings:
 This project is licensed under the MIT License.
 
 ### 📝 Changelog
+
+#### Version 1.0.1
+
+- In-game commands: `/hdl`, `/heelsdesign` (open configuration)
+- Changelog tab in plugin UI
+- Fixed load order so dependencies are detected on startup
+- Green highlight for the currently matched rule
+- Chinese / English UI localization
+- Default height rules: `-1～-0.01`, `-0.009～0.03`, `0.031～1.0`
+- Penumbra default Collection `Default`; Mod / Option empty by default
 
 #### Version 1.0.0
 
