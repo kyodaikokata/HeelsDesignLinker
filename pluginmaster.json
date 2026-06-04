@@ -19,7 +19,7 @@
       "other"
     ],
     "DalamudApiLevel": 15,
-    "AssemblyVersion": "1.0.0.0",
+    "AssemblyVersion": "1.0.1.0",
     "RepoUrl": "https://github.com/kyodaikokata/HeelsDesignLinker",
     "DownloadLinkInstall": "https://github.com/kyodaikokata/HeelsDesignLinker/raw/main/plugins/HeelsToggle/latest.zip",
     "DownloadLinkUpdate": "https://github.com/kyodaikokata/HeelsDesignLinker/raw/main/plugins/HeelsToggle/latest.zip",
@@ -28,7 +28,7 @@
     "LoadRequiredState": 0,
     "LoadSync": false,
     "CanUnloadAsync": false,
-    "LoadPriority": 0,
+    "LoadPriority": -10,
     "ImageUrls": []
   }
 ]

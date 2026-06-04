@@ -1,0 +1,13 @@
+<!--
+  若仍使用手动引用（Microsoft.NET.Sdk + HintPath），可复制本文件为 Directory.Build.props.user
+  并取消注释，将路径改为你本机最新的 Hooks 目录。
+
+  更推荐：使用 Dalamud.CN.NET.Sdk（当前 csproj 已配置），无需维护此路径。
+-->
+<!--
+<Project>
+  <PropertyGroup>
+    <DalamudLibPath>C:\Users\你的用户名\AppData\Roaming\XIVLauncherCN\addon\Hooks\dev\</DalamudLibPath>
+  </PropertyGroup>
+</Project>
+-->

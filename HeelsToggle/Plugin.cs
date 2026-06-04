@@ -6,6 +6,7 @@ using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using Dalamud.Configuration;
 using Dalamud.Bindings.ImGui;
+using Newtonsoft.Json.Linq;
 
 namespace HeelsToggle
 {
@@ -24,8 +25,8 @@ namespace HeelsToggle
         
         // Penumbra 全局设置
         public string PenumbraCollection { get; set; } = "Default";
-        public string PenumbraModName { get; set; } = "Immersive Footsteps";
-        public string PenumbraOption { get; set; } = "Footsteps";
+        public string PenumbraModName { get; set; } = "";
+        public string PenumbraOption { get; set; } = "";
     }
 
     public class HeelsRule
@@ -56,6 +57,7 @@ namespace HeelsToggle
         private bool drawConfigUi = false;
         private string lastAppliedDesign = "";
         private float currentHeelsHeight = 0f;
+        private int currentMatchedRuleIndex = -1; // 当前匹配的规则索引，-1 表示无匹配
 
         private bool isGlamourerAvailable = false;
         private bool isSimpleHeelsAvailable = false;
@@ -81,16 +83,16 @@ namespace HeelsToggle
                 });
                 Configuration.Rules.Add(new HeelsRule 
                 { 
-                    MinHeight = -0.01f, 
-                    MaxHeight = 0.05f, 
+                    MinHeight = -0.009f, 
+                    MaxHeight = 0.03f, 
                     GlamourerDesign = "SFX_Shoes",
                     PenumbraOptionName = "Shoes",
                     IsActive = true 
                 });
                 Configuration.Rules.Add(new HeelsRule 
                 { 
-                    MinHeight = 0.05f, 
-                    MaxHeight = 99.00f, 
+                    MinHeight = 0.031f, 
+                    MaxHeight = 1.00f, 
                     GlamourerDesign = "SFX_Heels",
                     PenumbraOptionName = "Heels",
                     IsActive = true 
@@ -98,7 +100,8 @@ namespace HeelsToggle
                 SaveConfig();
             }
             
-            CommandManager.AddHandler("/hgl", new CommandInfo(OnCommand) { HelpMessage = "打开 Heels Glamourer 联动配置" });
+            CommandManager.AddHandler("/hdl", new CommandInfo(OnCommand) { HelpMessage = Localization.CommandHelp });
+            CommandManager.AddHandler("/heelsdesign", new CommandInfo(OnCommand) { HelpMessage = Localization.CommandHelp });
             
             CheckDependencies();
             Framework.Update += OnFrameworkUpdate;
@@ -152,11 +155,14 @@ namespace HeelsToggle
             // 规则判定
             string targetDesign = "";
             string targetOptionName = "";
+            currentMatchedRuleIndex = -1; // 重置匹配索引
             
-            foreach (var rule in Configuration.Rules)
+            for (int i = 0; i < Configuration.Rules.Count; i++)
             {
+                var rule = Configuration.Rules[i];
                 if (rule.IsActive && currentHeelsHeight >= rule.MinHeight && currentHeelsHeight <= rule.MaxHeight)
                 {
+                    currentMatchedRuleIndex = i; // 记录匹配的规则索引
                     if (Configuration.Mode == PluginMode.Glamourer)
                     {
                         targetDesign = rule.GlamourerDesign;
@@ -248,12 +254,12 @@ namespace HeelsToggle
             if (!drawConfigUi) return;
 
             ImGui.SetNextWindowSize(new Vector2(600, 450), ImGuiCond.FirstUseEver);
-            if (ImGui.Begin("Heels Design Linker", ref drawConfigUi))
+            if (ImGui.Begin(Localization.WindowTitle, ref drawConfigUi))
             {
                 if (!isGlamourerAvailable && Configuration.Mode == PluginMode.Glamourer)
                 {
                     ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1.0f, 0.3f, 0.3f, 1.0f));
-                    ImGui.TextWrapped("⚠️ 错误：Glamourer 未启用！");
+                    ImGui.TextWrapped($"⚠️ {Localization.GlamourerStatus}: {Localization.NotAvailable}");
                     ImGui.PopStyleColor();
                     ImGui.Separator();
                 }
@@ -261,7 +267,7 @@ namespace HeelsToggle
                 if (!isSimpleHeelsAvailable)
                 {
                     ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1.0f, 0.3f, 0.3f, 1.0f));
-                    ImGui.TextWrapped("⚠️ 错误：SimpleHeels 未启用！");
+                    ImGui.TextWrapped($"⚠️ {Localization.SimpleHeelsStatus}: {Localization.NotAvailable}");
                     ImGui.PopStyleColor();
                     ImGui.Separator();
                 }
@@ -270,16 +276,23 @@ namespace HeelsToggle
                 if (ImGui.BeginTabBar("MainTabs"))
                 {
                     // 设置标签页
-                    if (ImGui.BeginTabItem("设置"))
+                    if (ImGui.BeginTabItem(Localization.TabSettings))
                     {
                         DrawSettingsTab();
                         ImGui.EndTabItem();
                     }
                     
                     // 调试标签页
-                    if (ImGui.BeginTabItem("调试"))
+                    if (ImGui.BeginTabItem(Localization.TabDebug))
                     {
                         DrawDebugTab();
+                        ImGui.EndTabItem();
+                    }
+                    
+                    // 更新履历
+                    if (ImGui.BeginTabItem(Localization.TabChangelog))
+                    {
+                        DrawChangelogTab();
                         ImGui.EndTabItem();
                     }
                     
@@ -291,21 +304,36 @@ namespace HeelsToggle
         
         private void DrawSettingsTab()
         {
-            ImGui.TextDisabled($"当前鞋跟高度: {currentHeelsHeight.ToString($"F{Configuration.DecimalPrecision}")}");
+            // 当前高度显示
+            ImGui.TextDisabled($"{Localization.CurrentHeight}: {currentHeelsHeight.ToString($"F{Configuration.DecimalPrecision}")}");
+            
+            // 显示当前匹配的规则
+            if (currentMatchedRuleIndex >= 0)
+            {
+                ImGui.SameLine();
+                ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.0f, 1.0f, 0.0f, 1.0f)); // 绿色
+                ImGui.Text($"[{Localization.RuleMatched(currentMatchedRuleIndex)}]");
+                ImGui.PopStyleColor();
+            }
+            else
+            {
+                ImGui.SameLine();
+                ImGui.TextDisabled($"[{Localization.NoRuleMatched}]");
+            }
             
             // 模式选择
             ImGui.Separator();
-            ImGui.Text("工作模式:");
+            ImGui.Text($"{Localization.Mode}:");
             ImGui.SameLine();
             
             int currentMode = (int)Configuration.Mode;
-            if (ImGui.RadioButton("Glamourer", currentMode == 0))
+            if (ImGui.RadioButton(Localization.GlamourerMode, currentMode == 0))
             {
                 Configuration.Mode = PluginMode.Glamourer;
                 SaveConfig();
             }
             ImGui.SameLine();
-            if (ImGui.RadioButton("Penumbra", currentMode == 1))
+            if (ImGui.RadioButton(Localization.PenumbraMode, currentMode == 1))
             {
                 Configuration.Mode = PluginMode.Penumbra;
                 SaveConfig();
@@ -315,37 +343,37 @@ namespace HeelsToggle
             if (Configuration.Mode == PluginMode.Penumbra)
             {
                 ImGui.Separator();
-                ImGui.Text("Penumbra 设置:");
+                ImGui.Text($"{Localization.PenumbraSettings}:");
                 
                 ImGui.SetNextItemWidth(200);
                 string collection = Configuration.PenumbraCollection;
-                if (ImGui.InputTextWithHint("##Collection", "Collection 名称", ref collection, 256))
+                if (ImGui.InputTextWithHint("##Collection", Localization.Collection, ref collection, 256))
                 {
                     Configuration.PenumbraCollection = collection;
                     SaveConfig();
                 }
                 ImGui.SameLine();
-                ImGui.TextDisabled("Collection");
+                ImGui.TextDisabled(Localization.Collection);
                 
                 ImGui.SetNextItemWidth(200);
                 string modName = Configuration.PenumbraModName;
-                if (ImGui.InputTextWithHint("##ModName", "Mod 名称", ref modName, 256))
+                if (ImGui.InputTextWithHint("##ModName", Localization.ModName, ref modName, 256))
                 {
                     Configuration.PenumbraModName = modName;
                     SaveConfig();
                 }
                 ImGui.SameLine();
-                ImGui.TextDisabled("Mod 名称");
+                ImGui.TextDisabled(Localization.ModName);
                 
                 ImGui.SetNextItemWidth(200);
                 string option = Configuration.PenumbraOption;
-                if (ImGui.InputTextWithHint("##Option", "选项名称", ref option, 256))
+                if (ImGui.InputTextWithHint("##Option", Localization.Option, ref option, 256))
                 {
                     Configuration.PenumbraOption = option;
                     SaveConfig();
                 }
                 ImGui.SameLine();
-                ImGui.TextDisabled("选项");
+                ImGui.TextDisabled(Localization.Option);
             }
             
             ImGui.Separator();
@@ -353,7 +381,7 @@ namespace HeelsToggle
             // 小数位数设置
             ImGui.SetNextItemWidth(200);
             int precision = Configuration.DecimalPrecision;
-            if (ImGui.SliderInt("小数位数", ref precision, 0, 5))
+            if (ImGui.SliderInt($"{Localization.DecimalPrecision} ({Localization.Places})", ref precision, 0, 5))
             {
                 Configuration.DecimalPrecision = precision;
                 SaveConfig();
@@ -363,16 +391,16 @@ namespace HeelsToggle
             
             if (Configuration.Mode == PluginMode.Glamourer)
             {
-                ImGui.TextWrapped("提示: 直接输入 Glamourer 设计名称 (不区分大小写)");
+                ImGui.TextWrapped(Localization.GlamourerHint);
             }
             else
             {
-                ImGui.TextWrapped("提示: 输入 Penumbra Option Name (例如: Shoes, Barefoot, Heels)");
+                ImGui.TextWrapped(Localization.PenumbraHint);
             }
             
             ImGui.Separator();
 
-            if (ImGui.Button("添加新规则 (Add Rule)"))
+            if (ImGui.Button(Localization.AddNewRule))
             {
                 Configuration.Rules.Add(new HeelsRule());
             }
@@ -382,20 +410,37 @@ namespace HeelsToggle
             {
                 ImGui.PushID(i);
                 var currentRule = Configuration.Rules[i];
+                
+                // 如果是当前匹配的规则，使用绿色背景高亮
+                if (i == currentMatchedRuleIndex)
+                {
+                    ImGui.PushStyleColor(ImGuiCol.FrameBg, new Vector4(0.0f, 0.4f, 0.0f, 0.3f));
+                    ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, new Vector4(0.0f, 0.5f, 0.0f, 0.4f));
+                    ImGui.PushStyleColor(ImGuiCol.FrameBgActive, new Vector4(0.0f, 0.6f, 0.0f, 0.5f));
+                }
 
                 bool isActive = currentRule.IsActive;
-                if (ImGui.Checkbox("##Active", ref isActive)) Configuration.Rules[i].IsActive = isActive;
+                if (ImGui.Checkbox($"##{Localization.Active}", ref isActive)) 
+                {
+                    Configuration.Rules[i].IsActive = isActive;
+                }
                 
                 ImGui.SameLine();
                 ImGui.SetNextItemWidth(65);
                 float minH = currentRule.MinHeight;
                 string formatString = $"%.{Configuration.DecimalPrecision}f";
-                if (ImGui.DragFloat("最小", ref minH, 0.01f, -10f, 10f, formatString)) Configuration.Rules[i].MinHeight = minH;
+                if (ImGui.DragFloat(Localization.MinHeight, ref minH, 0.01f, -10f, 10f, formatString)) 
+                {
+                    Configuration.Rules[i].MinHeight = minH;
+                }
                 
                 ImGui.SameLine();
                 ImGui.SetNextItemWidth(65);
                 float maxH = currentRule.MaxHeight;
-                if (ImGui.DragFloat("最大", ref maxH, 0.01f, -10f, 10f, formatString)) Configuration.Rules[i].MaxHeight = maxH;
+                if (ImGui.DragFloat(Localization.MaxHeight, ref maxH, 0.01f, -10f, 10f, formatString)) 
+                {
+                    Configuration.Rules[i].MaxHeight = maxH;
+                }
                 
                 ImGui.SameLine();
                 ImGui.SetNextItemWidth(200);
@@ -404,7 +449,7 @@ namespace HeelsToggle
                 if (Configuration.Mode == PluginMode.Glamourer)
                 {
                     string designName = currentRule.GlamourerDesign ?? "";
-                    if (ImGui.InputTextWithHint("##DesignInput", "Glamourer 设计名称", ref designName, 256))
+                    if (ImGui.InputTextWithHint("##DesignInput", Localization.DesignName, ref designName, 256))
                     {
                         Configuration.Rules[i].GlamourerDesign = designName;
                         SaveConfig();
@@ -413,7 +458,7 @@ namespace HeelsToggle
                 else // Penumbra
                 {
                     string optionName = currentRule.PenumbraOptionName ?? "";
-                    if (ImGui.InputTextWithHint("##OptionInput", "Penumbra Option Name", ref optionName, 256))
+                    if (ImGui.InputTextWithHint("##OptionInput", Localization.OptionName, ref optionName, 256))
                     {
                         Configuration.Rules[i].PenumbraOptionName = optionName;
                         SaveConfig();
@@ -421,35 +466,41 @@ namespace HeelsToggle
                 }
                 
                 ImGui.SameLine();
-                if (ImGui.Button("删除"))
+                if (ImGui.Button(Localization.Delete))
                 {
                     Configuration.Rules.RemoveAt(i);
                     SaveConfig();
+                }
+                
+                // 恢复高亮样式
+                if (i == currentMatchedRuleIndex)
+                {
+                    ImGui.PopStyleColor(3);
                 }
 
                 ImGui.PopID();
             }
             ImGui.EndChild();
 
-            if (ImGui.Button("保存配置 (Save)")) SaveConfig();
+            if (ImGui.Button(Localization.Save)) SaveConfig();
         }
         
         private void DrawDebugTab()
         {
-            ImGui.TextDisabled("调试工具和信息");
+            ImGui.TextDisabled(Localization.TabDebug);
             ImGui.Separator();
             
             // 显示错误信息
             if (!string.IsNullOrEmpty(lastError))
             {
                 ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1.0f, 0.3f, 0.3f, 1.0f));
-                ImGui.TextWrapped($"错误: {lastError}");
+                ImGui.TextWrapped($"{Localization.ErrorInfo}: {lastError}");
                 ImGui.PopStyleColor();
                 ImGui.Separator();
             }
             
             // IPC 测试按钮
-            if (ImGui.Button("测试 SimpleHeels IPC"))
+            if (ImGui.Button(Localization.TestIPC))
             {
                 try
                 {
@@ -459,7 +510,7 @@ namespace HeelsToggle
                 }
                 catch (Exception ex)
                 {
-                    lastError = $"IPC 测试失败: {ex.Message}";
+                    lastError = $"{Localization.TestIPC} {Localization.ErrorInfo}: {ex.Message}";
                     PluginLog.Error($"IPC test failed: {ex}");
                 }
             }
@@ -467,26 +518,26 @@ namespace HeelsToggle
             ImGui.Separator();
             
             // 状态信息
-            ImGui.Text($"SimpleHeels 状态: {(isSimpleHeelsAvailable ? "✓ 已连接" : "✗ 未连接")}");
+            ImGui.Text($"{Localization.SimpleHeelsStatus}: {(isSimpleHeelsAvailable ? $"✓ {Localization.Available}" : $"✗ {Localization.NotAvailable}")}");
             
             if (Configuration.Mode == PluginMode.Glamourer)
             {
-                ImGui.Text($"Glamourer 状态: {(isGlamourerAvailable ? "✓ 已连接" : "✗ 未连接")}");
+                ImGui.Text($"{Localization.GlamourerStatus}: {(isGlamourerAvailable ? $"✓ {Localization.Available}" : $"✗ {Localization.NotAvailable}")}");
             }
             else
             {
-                ImGui.Text("Penumbra 模式 (使用命令接口)");
+                ImGui.Text($"{Localization.PenumbraMode} ({(Localization.IsChine ? "使用命令接口" : "Using Command Interface")})");
             }
             
-            ImGui.Text($"当前模式: {Configuration.Mode}");
-            ImGui.Text($"最后应用: {lastAppliedDesign}");
+            ImGui.Text($"{Localization.CurrentMode}: {Configuration.Mode}");
+            ImGui.Text($"{Localization.LastApplied}: {lastAppliedDesign}");
             
             ImGui.Separator();
             
             // 显示原始 IPC 数据
             if (!string.IsNullOrEmpty(lastIpcData))
             {
-                if (ImGui.CollapsingHeader("原始 IPC 数据"))
+                if (ImGui.CollapsingHeader(Localization.RawIPCData))
                 {
                     ImGui.TextWrapped(lastIpcData);
                 }
@@ -495,25 +546,55 @@ namespace HeelsToggle
             ImGui.Separator();
             
             // Penumbra 命令示例
-            if (Configuration.Mode == PluginMode.Penumbra && ImGui.CollapsingHeader("Penumbra 命令示例"))
+            if (Configuration.Mode == PluginMode.Penumbra && ImGui.CollapsingHeader(Localization.PenumbraFormat))
             {
-                ImGui.TextWrapped($"完整命令格式:");
+                ImGui.TextWrapped($"{(Localization.IsChine ? "完整命令格式" : "Full Command Format")}:");
                 ImGui.TextDisabled($"/penumbra mod setting {Configuration.PenumbraCollection} | {Configuration.PenumbraModName} | {Configuration.PenumbraOption} | <OptionName>");
                 
                 ImGui.Spacing();
-                ImGui.TextWrapped("示例:");
+                ImGui.TextWrapped($"{(Localization.IsChine ? "示例" : "Examples")}:");
                 ImGui.BulletText($"/penumbra mod setting {Configuration.PenumbraCollection} | {Configuration.PenumbraModName} | {Configuration.PenumbraOption} | Shoes");
                 ImGui.BulletText($"/penumbra mod setting {Configuration.PenumbraCollection} | {Configuration.PenumbraModName} | {Configuration.PenumbraOption} | Barefoot");
                 ImGui.BulletText($"/penumbra mod setting {Configuration.PenumbraCollection} | {Configuration.PenumbraModName} | {Configuration.PenumbraOption} | Heels");
             }
             
             // Glamourer 支持格式
-            if (Configuration.Mode == PluginMode.Glamourer && ImGui.CollapsingHeader("Glamourer 支持格式"))
+            if (Configuration.Mode == PluginMode.Glamourer && ImGui.CollapsingHeader(Localization.GlamourerFormat))
             {
-                ImGui.BulletText("设计名称 (不区分大小写)");
-                ImGui.BulletText("设计路径 (用 / 分隔文件夹)");
-                ImGui.BulletText("设计标识符 (至少4个字符)");
+                ImGui.TextWrapped(Localization.GlamourerHint);
             }
+        }
+
+        private void DrawChangelogTab()
+        {
+            ImGui.BeginChild("ChangelogScroll", new Vector2(0, 0), false, ImGuiWindowFlags.None);
+            
+            foreach (var entry in Changelog.Entries)
+            {
+                var isCurrent = entry.Version == Changelog.CurrentVersion;
+                if (isCurrent)
+                {
+                    ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.4f, 1.0f, 0.5f, 1.0f));
+                }
+                
+                ImGui.Text($"{Localization.ChangelogVersion} {entry.Version}  ·  {Localization.ChangelogDate} {entry.Date}");
+                if (isCurrent)
+                {
+                    ImGui.PopStyleColor();
+                }
+                
+                var items = Localization.IsChine ? entry.ItemsZh : entry.ItemsEn;
+                foreach (var item in items)
+                {
+                    ImGui.BulletText(item);
+                }
+                
+                ImGui.Spacing();
+                ImGui.Separator();
+                ImGui.Spacing();
+            }
+            
+            ImGui.EndChild();
         }
 
         private void SaveConfig() => PluginInterface.SavePluginConfig(Configuration);
@@ -521,7 +602,8 @@ namespace HeelsToggle
         public void Dispose()
         {
             Framework.Update -= OnFrameworkUpdate;
-            CommandManager.RemoveHandler("/hgl");
+            CommandManager.RemoveHandler("/hdl");
+            CommandManager.RemoveHandler("/heelsdesign");
         }
     }
 }

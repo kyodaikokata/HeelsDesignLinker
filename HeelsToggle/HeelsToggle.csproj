@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Dalamud.CN.NET.Sdk/15.0.0">
 
     <PropertyGroup>
         <OutputType>Library</OutputType>
@@ -6,33 +6,21 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-        <ContinueOnError>false</ContinueOnError>
-        
-        <DalamudLibPath>C:\Users\Kokata\AppData\Roaming\XIVLauncherCN\addon\Hooks\26-05-30-01\</DalamudLibPath>
+        <RootNamespace>HeelsToggle</RootNamespace>
+        <AssemblyName>HeelsToggle</AssemblyName>
+
+        <!-- 国服 XIVLauncher：引用 %AppData%\XIVLauncherCN\addon\Hooks\dev -->
+        <Use_Dalamud_CN>true</Use_Dalamud_CN>
         <DalamudApiLevel>15</DalamudApiLevel>
+
+        <Version>1.0.1</Version>
+        <AssemblyVersion>1.0.1.0</AssemblyVersion>
+        <FileVersion>1.0.1.0</FileVersion>
+
+        <Author>KKT</Author>
+        <Name>Heels Design Linker</Name>
+        <Punchline>Auto-switch Glamourer designs or Penumbra mod settings based on SimpleHeels height</Punchline>
+        <Description>根据 SimpleHeels 的实时高度自动联动切换 Glamourer 的设计或 Penumbra 的 mod 子选项。</Description>
     </PropertyGroup>
-
-    <ItemGroup>
-        <PackageReference Include="DalamudPackager" Version="15.0.0" />
-    </ItemGroup>
-
-    <ItemGroup>
-        <Reference Include="Dalamud">
-            <HintPath>$(DalamudLibPath)Dalamud.dll</HintPath>
-            <Private>False</Private>
-        </Reference>
-        <Reference Include="Dalamud.Bindings.ImGui">
-            <HintPath>$(DalamudLibPath)Dalamud.Bindings.ImGui.dll</HintPath>
-            <Private>False</Private>
-        </Reference>
-        <Reference Include="FFXIVClientStructs">
-            <HintPath>$(DalamudLibPath)FFXIVClientStructs.dll</HintPath>
-            <Private>False</Private>
-        </Reference>
-        <Reference Include="Newtonsoft.Json">
-            <HintPath>$(DalamudLibPath)Newtonsoft.Json.dll</HintPath>
-            <Private>False</Private>
-        </Reference>
-    </ItemGroup>
 
 </Project>
