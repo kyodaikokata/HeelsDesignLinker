@@ -51,6 +51,7 @@ namespace HeelsToggle
         [PluginService] public static ICommandManager CommandManager { get; private set; } = null!;
         [PluginService] public static IFramework Framework { get; private set; } = null!;
         [PluginService] public static IObjectTable ObjectTable { get; private set; } = null!;
+        [PluginService] public static IClientState ClientState { get; private set; } = null!;
         [PluginService] public static IPluginLog PluginLog { get; private set; } = null!;
 
         private Configuration Configuration { get; set; }
@@ -66,6 +67,11 @@ namespace HeelsToggle
         private DateTime lastDependencyCheckUtc = DateTime.MinValue;
         private static readonly TimeSpan DependencyRecheckWhenMissing = TimeSpan.FromSeconds(2);
         private static readonly TimeSpan DependencyRecheckWhenReady = TimeSpan.FromSeconds(30);
+
+        /// <summary>本地玩家对象稳定就绪后，再等待一段时间才自动 apply，避免 &lt;me&gt; 未解析。</summary>
+        private static readonly TimeSpan AutoApplyStartupDelay = TimeSpan.FromSeconds(3);
+        private DateTime? localPlayerStableSinceUtc;
+        private string applyGateStatus = "";
         
         // 调试信息
         private string lastError = "";
@@ -110,6 +116,7 @@ namespace HeelsToggle
             
             RefreshDependencies(force: true);
             Framework.Update += OnFrameworkUpdate;
+            ClientState.Logout += OnLogout;
             
             // 🎯 核心修正 2：注册标准界面渲染回调
             PluginInterface.UiBuilder.Draw += DrawConfigurationUI;
@@ -204,11 +211,71 @@ namespace HeelsToggle
             }
         }
 
+        private void OnLogout(int type, int code)
+        {
+            ResetApplyState();
+        }
+
+        private void ResetApplyState()
+        {
+            localPlayerStableSinceUtc = null;
+            lastAppliedDesign = "";
+        }
+
+        private bool IsLocalPlayerReady()
+        {
+            if (!ClientState.IsLoggedIn)
+                return false;
+
+            var localPlayer = ObjectTable.LocalPlayer;
+            return localPlayer != null && localPlayer.IsValid();
+        }
+
+        private bool CanAutoApply(out string gateStatus)
+        {
+            if (!ClientState.IsLoggedIn)
+            {
+                localPlayerStableSinceUtc = null;
+                gateStatus = Localization.IsChine ? "未登录" : "Not logged in";
+                return false;
+            }
+
+            if (!IsLocalPlayerReady())
+            {
+                localPlayerStableSinceUtc = null;
+                gateStatus = Localization.IsChine ? "等待本地角色对象" : "Waiting for local player object";
+                return false;
+            }
+
+            var now = DateTime.UtcNow;
+            localPlayerStableSinceUtc ??= now;
+
+            var elapsed = now - localPlayerStableSinceUtc.Value;
+            if (elapsed < AutoApplyStartupDelay)
+            {
+                var remaining = AutoApplyStartupDelay - elapsed;
+                gateStatus = Localization.IsChine
+                    ? $"启动延迟 {remaining.TotalSeconds:F1}s"
+                    : $"Startup delay {remaining.TotalSeconds:F1}s";
+                return false;
+            }
+
+            gateStatus = Localization.IsChine ? "可自动应用" : "Ready to apply";
+            return true;
+        }
+
         private void OnFrameworkUpdate(IFramework framework)
         {
             RefreshDependenciesIfNeeded();
             if (!IsReadyForWork())
                 return;
+
+            if (!ClientState.IsLoggedIn)
+            {
+                applyGateStatus = Localization.IsChine ? "未登录" : "Not logged in";
+                ResetApplyState();
+                return;
+            }
             
             try
             {
@@ -259,6 +326,10 @@ namespace HeelsToggle
                 }
             }
 
+            applyGateStatus = "";
+            if (!CanAutoApply(out applyGateStatus))
+                return;
+
             // 应用设计/设置
             if (Configuration.Mode == PluginMode.Glamourer)
             {
@@ -307,9 +378,9 @@ namespace HeelsToggle
                 var json = Newtonsoft.Json.Linq.JObject.Parse(data);
                 
                 // 正确字段是 DefaultOffset (根据实际数据结构)
-                if (json["DefaultOffset"] != null)
+                if (json["DefaultOffset"] is JToken offsetToken)
                 {
-                    var height = json["DefaultOffset"].ToObject<float>();
+                    var height = offsetToken.Value<float>();
                     PluginLog.Debug($"Parsed height from DefaultOffset: {height}");
                     return height;
                 }
@@ -623,6 +694,7 @@ namespace HeelsToggle
             
             ImGui.Text($"{Localization.CurrentMode}: {Configuration.Mode}");
             ImGui.Text($"{Localization.LastApplied}: {lastAppliedDesign}");
+            ImGui.Text($"{Localization.ApplyGate}: {applyGateStatus}");
             
             ImGui.Separator();
             
@@ -693,6 +765,7 @@ namespace HeelsToggle
 
         public void Dispose()
         {
+            ClientState.Logout -= OnLogout;
             Framework.Update -= OnFrameworkUpdate;
             CommandManager.RemoveHandler("/hdl");
             CommandManager.RemoveHandler("/heelsdesign");

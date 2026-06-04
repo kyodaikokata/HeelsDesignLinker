@@ -65,6 +65,7 @@ namespace HeelsToggle
         
         public static string CurrentMode => IsChine ? "当前模式" : "Current Mode";
         public static string LastApplied => IsChine ? "最后应用" : "Last Applied";
+        public static string ApplyGate => IsChine ? "自动应用门控" : "Auto-apply gate";
         
         public static string ErrorInfo => IsChine ? "错误信息" : "Error Info";
         public static string TestIPC => IsChine ? "测试 SimpleHeels IPC" : "Test SimpleHeels IPC";

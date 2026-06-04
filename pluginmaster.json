@@ -19,8 +19,8 @@
       "other"
     ],
     "DalamudApiLevel": 15,
-    "AssemblyVersion": "1.0.2.0",
-    "Changelog": "1.0.2: Fixed dependency detection on fresh game launch; periodic IPC readiness checks without manual plugin toggle.",
+    "AssemblyVersion": "1.0.3.0",
+    "Changelog": "1.0.3: Wait for valid local player + 3s delay before auto Glamourer/Penumbra apply; fixes <me> placeholder error on login.",
     "LastUpdate": "1749216000",
     "RepoUrl": "https://github.com/kyodaikokata/HeelsDesignLinker",
     "DownloadLinkInstall": "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsToggle/latest.zip",

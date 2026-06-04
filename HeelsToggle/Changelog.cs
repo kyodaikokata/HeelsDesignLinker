@@ -4,10 +4,19 @@ namespace HeelsToggle
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.0.2";
+        public const string CurrentVersion = "1.0.3";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.0.3",
+                "2026-06-05",
+                [
+                    "修复进游戏时 Glamourer 报错「&lt;me&gt; 无法解析」并误套用设计：需本地角色就绪后再等待 3 秒才自动 apply",
+                ],
+                [
+                    "Fixed Glamourer \"<me>\" placeholder errors and wrong designs on login: auto-apply waits until local player is valid, then 3s startup delay",
+                ]),
             new(
                 "1.0.2",
                 "2026-06-05",
