@@ -53,7 +53,8 @@
         <Copy SourceFiles="$(_ManifestPath)" DestinationFolder="$(_ZipStaging)" Condition="Exists('$(_ManifestPath)')" />
 
         <Delete Files="$(_ZipPath)" Condition="Exists('$(_ZipPath)')" />
-        <ZipDirectory SourceDirectory="$(_ZipStaging)" DestinationFile="$(_ZipPath)" Overwrite="true" />
+        <!-- 使用 Compress-Archive，避免 ZipDirectory 在 Windows 下产生 Dalamud 无法解压的路径 -->
+        <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;Compress-Archive -Path '$(_ZipStaging)*' -DestinationPath '$(_ZipPath)' -Force&quot;" />
 
         <Copy SourceFiles="$(_ManifestPath)" DestinationFiles="$(_PublishDir)$(AssemblyName).json" SkipUnchangedFiles="true" Condition="Exists('$(_ManifestPath)')" />
     </Target>

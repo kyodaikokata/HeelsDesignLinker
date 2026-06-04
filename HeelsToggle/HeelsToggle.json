@@ -21,5 +21,6 @@
     "other"
   ],
   "IconUrl": "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/images/icon.png",
-  "LoadPriority": -10
+  "LoadPriority": -10,
+  "CanUnloadAsync": true
 }

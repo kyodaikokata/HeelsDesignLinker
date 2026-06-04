@@ -23,13 +23,13 @@
     "Changelog": "1.0.2: Fixed dependency detection on fresh game launch; periodic IPC readiness checks without manual plugin toggle.",
     "LastUpdate": "1749216000",
     "RepoUrl": "https://github.com/kyodaikokata/HeelsDesignLinker",
-    "DownloadLinkInstall": "https://github.com/kyodaikokata/HeelsDesignLinker/raw/main/plugins/HeelsToggle/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/kyodaikokata/HeelsDesignLinker/raw/main/plugins/HeelsToggle/latest.zip",
-    "DownloadLinkTesting": "https://github.com/kyodaikokata/HeelsDesignLinker/raw/main/plugins/HeelsToggle/latest.zip",
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsToggle/latest.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsToggle/latest.zip",
+    "DownloadLinkTesting": "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsToggle/latest.zip",
     "IconUrl": "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/images/icon.png",
     "LoadRequiredState": 0,
     "LoadSync": false,
-    "CanUnloadAsync": false,
+    "CanUnloadAsync": true,
     "LoadPriority": -10,
     "ImageUrls": []
   }
