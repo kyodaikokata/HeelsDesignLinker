@@ -140,6 +140,10 @@
 
 ### 📝 更新日志
 
+#### 版本 1.0.2
+
+- 修复新开游戏时偶发无法识别 SimpleHeels / Glamourer：启动后周期性重检依赖与 IPC，就绪后自动恢复，无需手动重新开关插件
+
 #### 版本 1.0.1
 
 - 游戏内命令：`/hdl`、`/heelsdesign`（打开配置窗口）
@@ -278,6 +282,10 @@ Configure mod settings:
 This project is licensed under the MIT License.
 
 ### 📝 Changelog
+
+#### Version 1.0.2
+
+- Fixed occasional failure to detect SimpleHeels/Glamourer on fresh launch: periodic dependency and IPC checks; recovers automatically without toggling the plugin
 
 #### Version 1.0.1
 

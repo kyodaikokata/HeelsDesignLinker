@@ -4,10 +4,19 @@ namespace HeelsToggle
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.0.1";
+        public const string CurrentVersion = "1.0.2";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.0.2",
+                "2026-06-05",
+                [
+                    "修复新开游戏时偶发无法识别 SimpleHeels / Glamourer 的问题：启动后周期性重检依赖插件与 SimpleHeels IPC，就绪后自动恢复，无需手动重新开关插件",
+                ],
+                [
+                    "Fixed occasional failure to detect SimpleHeels/Glamourer on fresh launch: periodic dependency and IPC readiness checks; recovers automatically without toggling the plugin",
+                ]),
             new(
                 "1.0.1",
                 "2026-06-04",

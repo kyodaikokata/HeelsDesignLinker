@@ -5,7 +5,7 @@
   "Punchline": "Auto-switch Glamourer designs or Penumbra mod Setting based on SimpleHeels height",
   "Description": "根据 SimpleHeels 的实时高度自动联动切换 Glamourer 的设计或 Penumbra 的mod子选项。",
   "ApplicableVersion": "any",
-  "AssemblyVersion": "1.0.1.0",
+  "AssemblyVersion": "1.0.2.0",
   "DalamudApiLevel": 15,
   "Tags": [
     "glamour",

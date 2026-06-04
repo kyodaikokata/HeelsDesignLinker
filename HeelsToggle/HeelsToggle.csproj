@@ -9,18 +9,53 @@
         <RootNamespace>HeelsToggle</RootNamespace>
         <AssemblyName>HeelsToggle</AssemblyName>
 
-        <!-- 国服 XIVLauncher：引用 %AppData%\XIVLauncherCN\addon\Hooks\dev -->
         <Use_Dalamud_CN>true</Use_Dalamud_CN>
         <DalamudApiLevel>15</DalamudApiLevel>
 
-        <Version>1.0.1</Version>
-        <AssemblyVersion>1.0.1.0</AssemblyVersion>
-        <FileVersion>1.0.1.0</FileVersion>
+        <Version>1.0.2</Version>
+        <AssemblyVersion>1.0.2.0</AssemblyVersion>
+        <FileVersion>1.0.2.0</FileVersion>
 
         <Author>KKT</Author>
         <Name>Heels Design Linker</Name>
         <Punchline>Auto-switch Glamourer designs or Penumbra mod settings based on SimpleHeels height</Punchline>
         <Description>根据 SimpleHeels 的实时高度自动联动切换 Glamourer 的设计或 Penumbra 的 mod 子选项。</Description>
+
+        <MakeZip>false</MakeZip>
     </PropertyGroup>
+
+    <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+        <GenerateDependencyFile>false</GenerateDependencyFile>
+        <DebugType>portable</DebugType>
+        <DebugSymbols>true</DebugSymbols>
+    </PropertyGroup>
+
+    <Target Name="CleanStalePublishArtifacts" BeforeTargets="CoreBuild" Condition="'$(Configuration)' == 'Release'">
+        <RemoveDir Directories="$(TargetDir)net10.0-windows" Condition="Exists('$(TargetDir)net10.0-windows')" />
+        <RemoveDir Directories="$(TargetDir)$(AssemblyName)" Condition="Exists('$(TargetDir)$(AssemblyName)')" />
+    </Target>
+
+    <Target Name="CreateCleanPluginZip" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+        <PropertyGroup>
+            <_PublishDir>$(TargetDir)$(AssemblyName)\</_PublishDir>
+            <_ZipStaging>$(IntermediateOutputPath)pluginzip\</_ZipStaging>
+            <_ZipPath>$(_PublishDir)latest.zip</_ZipPath>
+            <_ManifestPath>$(TargetDir)$(AssemblyName).json</_ManifestPath>
+            <_PdbPath>$(TargetDir)$(AssemblyName).pdb</_PdbPath>
+        </PropertyGroup>
+
+        <MakeDir Directories="$(_PublishDir)" />
+        <RemoveDir Directories="$(_ZipStaging)" />
+        <MakeDir Directories="$(_ZipStaging)" />
+
+        <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(_ZipStaging)" />
+        <Copy SourceFiles="$(_PdbPath)" DestinationFolder="$(_ZipStaging)" Condition="Exists('$(_PdbPath)')" />
+        <Copy SourceFiles="$(_ManifestPath)" DestinationFolder="$(_ZipStaging)" Condition="Exists('$(_ManifestPath)')" />
+
+        <Delete Files="$(_ZipPath)" Condition="Exists('$(_ZipPath)')" />
+        <ZipDirectory SourceDirectory="$(_ZipStaging)" DestinationFile="$(_ZipPath)" Overwrite="true" />
+
+        <Copy SourceFiles="$(_ManifestPath)" DestinationFiles="$(_PublishDir)$(AssemblyName).json" SkipUnchangedFiles="true" Condition="Exists('$(_ManifestPath)')" />
+    </Target>
 
 </Project>

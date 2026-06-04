@@ -61,6 +61,11 @@ namespace HeelsToggle
 
         private bool isGlamourerAvailable = false;
         private bool isSimpleHeelsAvailable = false;
+        private bool isSimpleHeelsIpcReady = false;
+        
+        private DateTime lastDependencyCheckUtc = DateTime.MinValue;
+        private static readonly TimeSpan DependencyRecheckWhenMissing = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan DependencyRecheckWhenReady = TimeSpan.FromSeconds(30);
         
         // 调试信息
         private string lastError = "";
@@ -103,28 +108,107 @@ namespace HeelsToggle
             CommandManager.AddHandler("/hdl", new CommandInfo(OnCommand) { HelpMessage = Localization.CommandHelp });
             CommandManager.AddHandler("/heelsdesign", new CommandInfo(OnCommand) { HelpMessage = Localization.CommandHelp });
             
-            CheckDependencies();
+            RefreshDependencies(force: true);
             Framework.Update += OnFrameworkUpdate;
             
             // 🎯 核心修正 2：注册标准界面渲染回调
             PluginInterface.UiBuilder.Draw += DrawConfigurationUI;
             
             // 🎯 核心修正 3：必须注册这个，告诉卫月当玩家在插件列表点击“设置”时应该呼出哪个 UI
-            PluginInterface.UiBuilder.OpenConfigUi += () => drawConfigUi = true;
-            PluginInterface.UiBuilder.OpenMainUi += () => drawConfigUi = true; // 消除 main ui 警告
+            PluginInterface.UiBuilder.OpenConfigUi += () =>
+            {
+                drawConfigUi = true;
+                RefreshDependencies(force: true);
+            };
+            PluginInterface.UiBuilder.OpenMainUi += () =>
+            {
+                drawConfigUi = true;
+                RefreshDependencies(force: true);
+            };
         }
 
-        private void OnCommand(string command, string args) => drawConfigUi = !drawConfigUi;
-
-        private void CheckDependencies()
+        private void OnCommand(string command, string args)
         {
-            isGlamourerAvailable = PluginInterface.InstalledPlugins.Any(p => p.InternalName == "Glamourer" && p.IsLoaded);
-            isSimpleHeelsAvailable = PluginInterface.InstalledPlugins.Any(p => p.InternalName == "SimpleHeels" && p.IsLoaded);
+            drawConfigUi = !drawConfigUi;
+            if (drawConfigUi)
+                RefreshDependencies(force: true);
+        }
+
+        /// <summary>
+        /// 依赖插件可能晚于本插件完成加载/注册 IPC，因此在就绪前周期性重检。
+        /// </summary>
+        private bool IsReadyForWork()
+        {
+            if (!isSimpleHeelsAvailable || !isSimpleHeelsIpcReady)
+                return false;
+
+            if (Configuration.Mode == PluginMode.Glamourer && !isGlamourerAvailable)
+                return false;
+
+            return true;
+        }
+
+        private void RefreshDependenciesIfNeeded()
+        {
+            var interval = IsReadyForWork() ? DependencyRecheckWhenReady : DependencyRecheckWhenMissing;
+            var now = DateTime.UtcNow;
+            if ((now - lastDependencyCheckUtc) < interval)
+                return;
+
+            RefreshDependencies(force: false);
+        }
+
+        private void RefreshDependencies(bool force)
+        {
+            if (!force)
+            {
+                var interval = IsReadyForWork() ? DependencyRecheckWhenReady : DependencyRecheckWhenMissing;
+                var now = DateTime.UtcNow;
+                if ((now - lastDependencyCheckUtc) < interval)
+                    return;
+            }
+
+            lastDependencyCheckUtc = DateTime.UtcNow;
+            var wasReady = IsReadyForWork();
+
+            isGlamourerAvailable = PluginInterface.InstalledPlugins.Any(p =>
+                p.InternalName == "Glamourer" && p.IsLoaded);
+            isSimpleHeelsAvailable = PluginInterface.InstalledPlugins.Any(p =>
+                p.InternalName == "SimpleHeels" && p.IsLoaded);
+
+            isSimpleHeelsIpcReady = false;
+            if (isSimpleHeelsAvailable)
+            {
+                try
+                {
+                    var provider = PluginInterface.GetIpcSubscriber<string>("SimpleHeels.GetLocalPlayer");
+                    provider.InvokeFunc();
+                    isSimpleHeelsIpcReady = true;
+                }
+                catch (Exception ex)
+                {
+                    PluginLog.Debug($"SimpleHeels IPC not ready yet: {ex.Message}");
+                }
+            }
+
+            var nowReady = IsReadyForWork();
+            if (nowReady && !wasReady)
+            {
+                PluginLog.Info(Configuration.Mode == PluginMode.Glamourer
+                    ? "Heels Design Linker: SimpleHeels + Glamourer ready."
+                    : "Heels Design Linker: SimpleHeels ready.");
+            }
+            else if (!nowReady && wasReady)
+            {
+                PluginLog.Warning("Heels Design Linker: dependency plugin(s) became unavailable.");
+            }
         }
 
         private void OnFrameworkUpdate(IFramework framework)
         {
-            if (!isGlamourerAvailable || !isSimpleHeelsAvailable) return;
+            RefreshDependenciesIfNeeded();
+            if (!IsReadyForWork())
+                return;
             
             try
             {
@@ -264,10 +348,13 @@ namespace HeelsToggle
                     ImGui.Separator();
                 }
                 
-                if (!isSimpleHeelsAvailable)
+                if (!isSimpleHeelsAvailable || !isSimpleHeelsIpcReady)
                 {
                     ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1.0f, 0.3f, 0.3f, 1.0f));
-                    ImGui.TextWrapped($"⚠️ {Localization.SimpleHeelsStatus}: {Localization.NotAvailable}");
+                    var shDetail = !isSimpleHeelsAvailable
+                        ? Localization.NotAvailable
+                        : (Localization.IsChine ? "已加载，IPC 未就绪" : "Loaded, IPC not ready");
+                    ImGui.TextWrapped($"⚠️ {Localization.SimpleHeelsStatus}: {shDetail}");
                     ImGui.PopStyleColor();
                     ImGui.Separator();
                 }
@@ -518,7 +605,12 @@ namespace HeelsToggle
             ImGui.Separator();
             
             // 状态信息
-            ImGui.Text($"{Localization.SimpleHeelsStatus}: {(isSimpleHeelsAvailable ? $"✓ {Localization.Available}" : $"✗ {Localization.NotAvailable}")}");
+            var simpleHeelsStatus = !isSimpleHeelsAvailable
+                ? $"✗ {Localization.NotAvailable}"
+                : isSimpleHeelsIpcReady
+                    ? $"✓ {Localization.Available}"
+                    : (Localization.IsChine ? "△ 已加载 / IPC 等待中" : "△ Loaded / IPC pending");
+            ImGui.Text($"{Localization.SimpleHeelsStatus}: {simpleHeelsStatus}");
             
             if (Configuration.Mode == PluginMode.Glamourer)
             {
