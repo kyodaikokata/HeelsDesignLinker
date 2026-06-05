@@ -1,11 +1,11 @@
-﻿{
+{
   "Author": "KKT",
   "Name": "Heels Design Linker",
   "InternalName": "HeelsToggle",
-  "Punchline": "Auto-switch Glamourer designs or Penumbra mod Setting based on SimpleHeels height",
-  "Description": "根据 SimpleHeels 的实时高度自动联动切换 Glamourer 的设计或 Penumbra 的mod子选项。",
+  "Punchline": "Auto-switch Glamourer/Penumbra by SimpleHeels height, with optional Moodles / Honorific",
+  "Description": "根据 SimpleHeels 的实时高度自动联动 Glamourer 设计或 Penumbra mod 选项，并可选用 Moodles 状态/预设与 Honorific 称号。",
   "ApplicableVersion": "any",
-  "AssemblyVersion": "1.0.3.0",
+  "AssemblyVersion": "1.0.15.0",
   "DalamudApiLevel": 15,
   "Tags": [
     "glamour",
@@ -14,6 +14,8 @@
     "automation",
     "heels",
     "penumbra",
+    "moodles",
+    "honorific",
     "appearance"
   ],
   "CategoryTags": [

@@ -19,8 +19,8 @@
       "other"
     ],
     "DalamudApiLevel": 15,
-    "AssemblyVersion": "1.0.3.0",
-    "Changelog": "1.0.3: Wait for valid local player + 3s delay before auto Glamourer/Penumbra apply; fixes <me> placeholder error on login.",
+    "AssemblyVersion": "1.1.0.0",
+    "Changelog": "1.1.0: Multi-action rules, per-action Penumbra settings, if/else-if/else height rules, native IPC, default 4 decimal places.",
     "LastUpdate": "1749216000",
     "RepoUrl": "https://github.com/kyodaikokata/HeelsDesignLinker",
     "DownloadLinkInstall": "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsToggle/latest.zip",
