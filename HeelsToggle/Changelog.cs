@@ -4,10 +4,25 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.2.0.1";
+        public const string CurrentVersion = "1.2.0.2";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.2.0.2",
+                "2026-06-06",
+                [
+                    "修复首次登录后过早自动 apply 导致角色外观呈「全裸」投影的问题",
+                    "登录后等待装备 DrawData 稳定再应用；首次 apply 跳过基准 Glamourer revert 与 Penumbra 关 Mod",
+                    "发行路径统一为 plugins/HeelsDesignLinker；国服/国际服分别使用 pluginmaster.cn.json / pluginmaster.global.json",
+                    "新增 CN / Global 双构建与 sync-to-release 发布脚本",
+                ],
+                [
+                    "Fixed naked equipment projection when auto-apply ran too early after first login",
+                    "Wait for stable equipment DrawData before apply; skip baseline Glamourer revert and Penumbra mod-disable on first apply",
+                    "Catalog zip paths unified under plugins/HeelsDesignLinker; separate pluginmaster.cn.json and pluginmaster.global.json",
+                    "Added CN / Global dual-build and sync-to-release publish scripts",
+                ]),
             new(
                 "1.2.0.1",
                 "2026-06-06",

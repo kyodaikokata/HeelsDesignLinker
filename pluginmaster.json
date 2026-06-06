@@ -1,10 +1,10 @@
 ﻿[
   {
     "Author": "KKT",
-    "Name": "Heels Design Linker",
+    "Name": "Heels Design Linker (deprecated manifest)",
     "InternalName": "HeelsDesignLinker",
-    "Punchline": "Auto-switch Glamourer/Penumbra by SimpleHeels height, with optional Moodles / Honorific",
-    "Description": "根据 SimpleHeels 的实时高度自动联动 Glamourer 设计或 Penumbra mod 选项，并可选用 Moodles 状态/预设与 Honorific 称号。Automatically switches Glamourer designs or Penumbra mod settings based on SimpleHeels height detection.",
+    "Punchline": "Use pluginmaster.cn.json or pluginmaster.global.json instead",
+    "Description": "此 manifest 已弃用。国服请改用 pluginmaster.cn.json，国际服请改用 pluginmaster.global.json。",
     "ApplicableVersion": "any",
     "Tags": [
       "glamour",
@@ -22,13 +22,13 @@
       "other"
     ],
     "DalamudApiLevel": 15,
-    "AssemblyVersion": "1.2.0.1",
-    "Changelog": "1.2.0.1: Reduced unnecessary xllog output; IPC/apply failures still logged for troubleshooting.",
-    "LastUpdate": "1780831071",
+    "AssemblyVersion": "1.2.0.2",
+    "Changelog": "Deprecated manifest. Use pluginmaster.cn.json (CN) or pluginmaster.global.json (Global).",
+    "LastUpdate": "1780768573",
     "RepoUrl": "https://github.com/kyodaikokata/HeelsDesignLinker",
-    "DownloadLinkInstall": "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsToggle/latest.zip",
-    "DownloadLinkUpdate": "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsToggle/latest.zip",
-    "DownloadLinkTesting": "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsToggle/latest.zip",
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsDesignLinker/latest-cn.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsDesignLinker/latest-cn.zip",
+    "DownloadLinkTesting": "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsDesignLinker/latest-cn.zip",
     "IconUrl": "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/images/icon.png",
     "LoadRequiredState": 0,
     "LoadSync": false,

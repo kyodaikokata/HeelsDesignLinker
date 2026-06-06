@@ -663,7 +663,11 @@ namespace HeelsDesignLinker
 
         /// <summary>本地玩家对象稳定就绪后，再等待一段时间才自动 apply，避免 &lt;me&gt; 未解析。</summary>
         private static readonly TimeSpan AutoApplyStartupDelay = TimeSpan.FromSeconds(3);
+        /// <summary>DrawData 装备外观首次就绪后，再等待一段时间才 apply，避免登录后裸体模型阶段误触发 Glamourer/Penumbra。</summary>
+        private static readonly TimeSpan AppearanceStableDelay = TimeSpan.FromSeconds(1.5);
         private DateTime? localPlayerStableSinceUtc;
+        private DateTime? appearancePopulatedSinceUtc;
+        private int successfulApplyCyclesThisLogin;
         private DateTime lastApplyUtc = DateTime.MinValue;
         private string applyGateStatus = "";
         
@@ -1427,6 +1431,8 @@ namespace HeelsDesignLinker
         private void ResetApplyState()
         {
             localPlayerStableSinceUtc = null;
+            appearancePopulatedSinceUtc = null;
+            successfulApplyCyclesThisLogin = 0;
             lastApplyUtc = DateTime.MinValue;
             lastAppliedActionKeys.Clear();
             lastAppliedHonorificJson = "";
@@ -1535,6 +1541,68 @@ namespace HeelsDesignLinker
             return localPlayer != null && localPlayer.IsValid();
         }
 
+        /// <summary>登录后 DrawData 是否已加载出非空装备外观（避免在裸体/未投影阶段 apply）。</summary>
+        private unsafe bool IsCharacterAppearanceReady(out string status)
+        {
+            status = "";
+
+            if (!IsLocalPlayerReady())
+            {
+                appearancePopulatedSinceUtc = null;
+                status = Localization.IsChine ? "等待本地角色对象" : "Waiting for local player object";
+                return false;
+            }
+
+            var localPlayer = ObjectTable.LocalPlayer;
+            if (localPlayer == null)
+            {
+                appearancePopulatedSinceUtc = null;
+                status = Localization.IsChine ? "等待本地角色对象" : "Waiting for local player object";
+                return false;
+            }
+
+            var character = (FFXIVClientStructs.FFXIV.Client.Game.Character.Character*)localPlayer.Address;
+            if (character == null)
+            {
+                appearancePopulatedSinceUtc = null;
+                status = Localization.IsChine ? "等待角色模型" : "Waiting for character model";
+                return false;
+            }
+
+            var populatedSlots = 0;
+            for (var i = 0; i < 5; i++)
+            {
+                if (character->DrawData.EquipmentModelIds[i].Id != 0)
+                    populatedSlots++;
+            }
+
+            if (populatedSlots < 2)
+            {
+                appearancePopulatedSinceUtc = null;
+                status = Localization.IsChine ? "等待装备外观加载" : "Waiting for equipment appearance";
+                return false;
+            }
+
+            appearancePopulatedSinceUtc ??= DateTime.UtcNow;
+            var stableElapsed = DateTime.UtcNow - appearancePopulatedSinceUtc.Value;
+            if (stableElapsed < AppearanceStableDelay)
+            {
+                var remaining = AppearanceStableDelay - stableElapsed;
+                status = Localization.IsChine
+                    ? $"外观稳定中 {remaining.TotalSeconds:F1}s"
+                    : $"Appearance stabilizing {remaining.TotalSeconds:F1}s";
+                return false;
+            }
+
+            if (ConfigurationUsesGlamourer() && isGlamourerAvailable && !_glamourerInterop.IsIpcAvailable())
+            {
+                status = Localization.IsChine ? "等待 Glamourer IPC" : "Waiting for Glamourer IPC";
+                return false;
+            }
+
+            return true;
+        }
+
         private bool CanAutoApply(out string gateStatus)
         {
             if (!ClientState.IsLoggedIn)
@@ -1561,6 +1629,12 @@ namespace HeelsDesignLinker
                 gateStatus = Localization.IsChine
                     ? $"启动延迟 {remaining.TotalSeconds:F1}s"
                     : $"Startup delay {remaining.TotalSeconds:F1}s";
+                return false;
+            }
+
+            if (!IsCharacterAppearanceReady(out var appearanceStatus))
+            {
+                gateStatus = appearanceStatus;
                 return false;
             }
 
@@ -1663,8 +1737,8 @@ namespace HeelsDesignLinker
             if (ipcDataChanged || drawDataChanged)
             {
                 if (drawDataChanged)
-                if (ipcDataChanged)
-                    
+                    appearancePopulatedSinceUtc = null;
+
                 stableTrackingRuleIndex = -1;
                 ruleMatchStableSinceUtc = null;
             }
@@ -1803,6 +1877,9 @@ namespace HeelsDesignLinker
 
             if (configDirty)
                 SaveConfig();
+
+            if (successfulApplyCyclesThisLogin == 0)
+                successfulApplyCyclesThisLogin = 1;
 
             if (appliedAnything)
             {
@@ -2366,6 +2443,13 @@ namespace HeelsDesignLinker
             if (lastAppliedActionKeys.Contains(applyKey))
                 return;
 
+            // 登录后首次 apply 跳过「禁用 Mod」类基准行动，避免在未加载完外观时关掉 Penumbra 投影
+            if (!enabled && successfulApplyCyclesThisLogin == 0)
+            {
+                lastAppliedActionKeys.Add(applyKey);
+                return;
+            }
+
             if (_penumbraInterop.TrySetModEnabled(
                     param.PenumbraCollection ?? "Default",
                     param.PenumbraModName,
@@ -2534,6 +2618,13 @@ namespace HeelsDesignLinker
                 var applyKey = "Baseline:G:Revert";
                 if (lastAppliedActionKeys.Contains(applyKey))
                     return;
+
+                // 登录后首次 apply 跳过 revert，避免角色外观未就绪时出现「全裸」投影
+                if (successfulApplyCyclesThisLogin == 0)
+                {
+                    lastAppliedActionKeys.Add(applyKey);
+                    return;
+                }
 
                 try
                 {
