@@ -22,9 +22,9 @@
                          "other"
                      ],
     "DalamudApiLevel":  15,
-    "AssemblyVersion":  "1.2.0.3",
-    "Changelog":  "1.2.0.3: Persist baseline Actions UI expand state per RuleSet (section + type groups).",
-    "LastUpdate": "1780769077",
+    "AssemblyVersion":  "1.2.0.4",
+    "Changelog":  "1.2.0.4: Stronger login appearance gate; stable unequipped flow; legacy manifest sync fix.",
+    "LastUpdate": "1780769577",
     "RepoUrl":  "https://github.com/kyodaikokata/HeelsDesignLinker",
     "DownloadLinkInstall":  "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsDesignLinker/latest-cn.zip",
     "DownloadLinkUpdate":  "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsDesignLinker/latest-cn.zip",

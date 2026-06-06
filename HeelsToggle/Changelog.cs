@@ -4,10 +4,25 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.2.0.3";
+        public const string CurrentVersion = "1.2.0.4";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.2.0.4",
+                "2026-06-07",
+                [
+                    "进一步加强登录后外观就绪检测，减少进游戏「全裸」投影",
+                    "区分「登录加载中」与「稳定无装备」：真正没穿装备时不会永久卡住自动 apply",
+                    "登录预热 + 首次 apply 周期跳过规则 Glamourer apply 与 Penumbra 关 Mod",
+                    "发版脚本同步 legacy pluginmaster.json 版本，避免 manifest 与 zip 不一致",
+                ],
+                [
+                    "Stronger post-login appearance readiness checks to reduce naked projection on enter",
+                    "Distinguish loading vs stable unequipped so truly gearless characters are not blocked forever",
+                    "Login warmup plus first apply cycle skips rule Glamourer apply and Penumbra mod-disable",
+                    "Publish script syncs legacy pluginmaster.json version to match the zip",
+                ]),
             new(
                 "1.2.0.3",
                 "2026-06-06",

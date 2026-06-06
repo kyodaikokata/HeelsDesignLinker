@@ -672,9 +672,12 @@ namespace HeelsDesignLinker
         /// <summary>本地玩家对象稳定就绪后，再等待一段时间才自动 apply，避免 &lt;me&gt; 未解析。</summary>
         private static readonly TimeSpan AutoApplyStartupDelay = TimeSpan.FromSeconds(3);
         /// <summary>DrawData 装备外观首次就绪后，再等待一段时间才 apply，避免登录后裸体模型阶段误触发 Glamourer/Penumbra。</summary>
-        private static readonly TimeSpan AppearanceStableDelay = TimeSpan.FromSeconds(1.5);
+        private static readonly TimeSpan AppearanceStableDelay = TimeSpan.FromSeconds(2.5);
+        /// <summary>外观检测全部通过后，再额外等待一段时间才允许任何自动 apply（含规则行动）。</summary>
+        private static readonly TimeSpan PostAppearanceReadyWarmup = TimeSpan.FromSeconds(2);
         private DateTime? localPlayerStableSinceUtc;
         private DateTime? appearancePopulatedSinceUtc;
+        private DateTime? autoApplyAllowedAfterUtc;
         private int successfulApplyCyclesThisLogin;
         private DateTime lastApplyUtc = DateTime.MinValue;
         private string applyGateStatus = "";
@@ -918,6 +921,7 @@ namespace HeelsDesignLinker
             
             RefreshDependencies(force: true);
             Framework.Update += OnFrameworkUpdate;
+            ClientState.Login += OnLogin;
             ClientState.Logout += OnLogout;
             
             // 🎯 核心修正 2：注册标准界面渲染回调
@@ -1342,6 +1346,12 @@ namespace HeelsDesignLinker
             }
         }
 
+        private void OnLogin()
+        {
+            ResetApplyState();
+            drawDataInitialized = false;
+        }
+
         private void OnLogout(int type, int code)
         {
             ResetApplyState();
@@ -1440,6 +1450,7 @@ namespace HeelsDesignLinker
         {
             localPlayerStableSinceUtc = null;
             appearancePopulatedSinceUtc = null;
+            autoApplyAllowedAfterUtc = null;
             successfulApplyCyclesThisLogin = 0;
             lastApplyUtc = DateTime.MinValue;
             lastAppliedActionKeys.Clear();
@@ -1549,14 +1560,124 @@ namespace HeelsDesignLinker
             return localPlayer != null && localPlayer.IsValid();
         }
 
-        /// <summary>登录后 DrawData 是否已加载出非空装备外观（避免在裸体/未投影阶段 apply）。</summary>
+        private void ResetAppearanceReadyTracking()
+        {
+            appearancePopulatedSinceUtc = null;
+            autoApplyAllowedAfterUtc = null;
+        }
+
+        private static bool IsRealEquipmentItem(uint itemId) =>
+            itemId != 0 && !EmperorsNewItems.IsEmperorsNewByItemId(itemId);
+
+        private static bool IsRenderableEquipmentModel(ushort modelId) =>
+            modelId != 0 && !EmperorsNewItems.IsEmperorsNewByModelId(modelId);
+
+        /// <summary>读取身体/腿部是否穿着实际装备（非皇帝套）。Glamourer 优先，否则读背包。</summary>
+        private unsafe void GetCoreEquipmentState(out bool? bodyEquipped, out bool? legsEquipped)
+        {
+            bodyEquipped = null;
+            legsEquipped = null;
+
+            if (isGlamourerAvailable && _glamourerInterop.IsIpcAvailable())
+            {
+                bodyEquipped = _glamourerInterop.HasEquipmentInSlotForLocalPlayer(EquipSlot.Body);
+                legsEquipped = _glamourerInterop.HasEquipmentInSlotForLocalPlayer(EquipSlot.Legs);
+            }
+
+            var inventoryManager = InventoryManager.Instance();
+            if (inventoryManager == null)
+                return;
+
+            var container = inventoryManager->GetInventoryContainer(InventoryType.EquippedItems);
+            if (container == null)
+                return;
+
+            var bodyItem = container->GetInventorySlot(3);
+            var legsItem = container->GetInventorySlot(6);
+            if (bodyItem == null || legsItem == null)
+                return;
+
+            if (!bodyEquipped.HasValue)
+                bodyEquipped = IsRealEquipmentItem(bodyItem->ItemId);
+            if (!legsEquipped.HasValue)
+                legsEquipped = IsRealEquipmentItem(legsItem->ItemId);
+        }
+
+        /// <summary>
+        /// 区分「登录加载中」与「已稳定的无装备/有装备」。
+        /// 真正没穿装备时走无装备分支，稳定后允许 apply，不会永久卡住。
+        /// </summary>
+        private unsafe bool IsAppearanceStateSettled(
+            ushort bodyModelId,
+            ushort legsModelId,
+            out bool isUnequipped,
+            out string status)
+        {
+            isUnequipped = false;
+            status = "";
+
+            GetCoreEquipmentState(out var bodyEquipped, out var legsEquipped);
+            if (!bodyEquipped.HasValue || !legsEquipped.HasValue)
+            {
+                status = Localization.IsChine ? "等待装备数据同步" : "Waiting for equipment data sync";
+                return false;
+            }
+
+            var bodyDrawReady = IsRenderableEquipmentModel(bodyModelId);
+            var legsDrawReady = IsRenderableEquipmentModel(legsModelId);
+
+            if (!bodyEquipped.Value && !legsEquipped.Value)
+            {
+                // 加载中：背包已空但 DrawData 仍显示可见模型（尚未同步到无装备）
+                if (bodyDrawReady || legsDrawReady)
+                {
+                    status = Localization.IsChine
+                        ? "等待无装备外观同步"
+                        : "Waiting for unequipped appearance sync";
+                    return false;
+                }
+
+                isUnequipped = true;
+                return true;
+            }
+
+            // 有装备的槽位：要求对应 DrawData 已投影完成
+            if (bodyEquipped.Value && !bodyDrawReady)
+            {
+                status = Localization.IsChine ? "等待身体外观加载" : "Waiting for body appearance";
+                return false;
+            }
+
+            if (legsEquipped.Value && !legsDrawReady)
+            {
+                status = Localization.IsChine ? "等待腿部外观加载" : "Waiting for legs appearance";
+                return false;
+            }
+
+            // 加载中：背包已有装备但 DrawData 仍为空/皇帝套
+            if (!bodyEquipped.Value && bodyDrawReady)
+            {
+                status = Localization.IsChine ? "等待身体装备同步" : "Waiting for body equipment sync";
+                return false;
+            }
+
+            if (!legsEquipped.Value && legsDrawReady)
+            {
+                status = Localization.IsChine ? "等待腿部装备同步" : "Waiting for legs equipment sync";
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>登录后外观是否已稳定（有装备等投影，无装备等同步完成），避免误触发 apply。</summary>
         private unsafe bool IsCharacterAppearanceReady(out string status)
         {
             status = "";
 
             if (!IsLocalPlayerReady())
             {
-                appearancePopulatedSinceUtc = null;
+                ResetAppearanceReadyTracking();
                 status = Localization.IsChine ? "等待本地角色对象" : "Waiting for local player object";
                 return false;
             }
@@ -1564,7 +1685,7 @@ namespace HeelsDesignLinker
             var localPlayer = ObjectTable.LocalPlayer;
             if (localPlayer == null)
             {
-                appearancePopulatedSinceUtc = null;
+                ResetAppearanceReadyTracking();
                 status = Localization.IsChine ? "等待本地角色对象" : "Waiting for local player object";
                 return false;
             }
@@ -1572,23 +1693,36 @@ namespace HeelsDesignLinker
             var character = (FFXIVClientStructs.FFXIV.Client.Game.Character.Character*)localPlayer.Address;
             if (character == null)
             {
-                appearancePopulatedSinceUtc = null;
+                ResetAppearanceReadyTracking();
                 status = Localization.IsChine ? "等待角色模型" : "Waiting for character model";
                 return false;
             }
 
-            var populatedSlots = 0;
-            for (var i = 0; i < 5; i++)
+            var bodyModelId = character->DrawData.EquipmentModelIds[1].Id;
+            var legsModelId = character->DrawData.EquipmentModelIds[3].Id;
+
+            if (!IsAppearanceStateSettled(bodyModelId, legsModelId, out var isUnequipped, out var settleStatus))
             {
-                if (character->DrawData.EquipmentModelIds[i].Id != 0)
-                    populatedSlots++;
+                ResetAppearanceReadyTracking();
+                status = settleStatus;
+                return false;
             }
 
-            if (populatedSlots < 2)
+            if (ConfigurationUsesGlamourer() && isGlamourerAvailable)
             {
-                appearancePopulatedSinceUtc = null;
-                status = Localization.IsChine ? "等待装备外观加载" : "Waiting for equipment appearance";
-                return false;
+                if (!_glamourerInterop.IsIpcAvailable())
+                {
+                    ResetAppearanceReadyTracking();
+                    status = Localization.IsChine ? "等待 Glamourer IPC" : "Waiting for Glamourer IPC";
+                    return false;
+                }
+
+                if (_glamourerInterop.GetLocalPlayerState(forceRefresh: true) == null)
+                {
+                    ResetAppearanceReadyTracking();
+                    status = Localization.IsChine ? "等待 Glamourer 角色状态" : "Waiting for Glamourer player state";
+                    return false;
+                }
             }
 
             appearancePopulatedSinceUtc ??= DateTime.UtcNow;
@@ -1596,15 +1730,23 @@ namespace HeelsDesignLinker
             if (stableElapsed < AppearanceStableDelay)
             {
                 var remaining = AppearanceStableDelay - stableElapsed;
-                status = Localization.IsChine
-                    ? $"外观稳定中 {remaining.TotalSeconds:F1}s"
-                    : $"Appearance stabilizing {remaining.TotalSeconds:F1}s";
+                status = isUnequipped
+                    ? (Localization.IsChine
+                        ? $"无装备，稳定中 {remaining.TotalSeconds:F1}s"
+                        : $"Unequipped, stabilizing {remaining.TotalSeconds:F1}s")
+                    : (Localization.IsChine
+                        ? $"外观稳定中 {remaining.TotalSeconds:F1}s"
+                        : $"Appearance stabilizing {remaining.TotalSeconds:F1}s");
                 return false;
             }
 
-            if (ConfigurationUsesGlamourer() && isGlamourerAvailable && !_glamourerInterop.IsIpcAvailable())
+            autoApplyAllowedAfterUtc ??= DateTime.UtcNow + PostAppearanceReadyWarmup;
+            if (DateTime.UtcNow < autoApplyAllowedAfterUtc.Value)
             {
-                status = Localization.IsChine ? "等待 Glamourer IPC" : "Waiting for Glamourer IPC";
+                var remaining = autoApplyAllowedAfterUtc.Value - DateTime.UtcNow;
+                status = Localization.IsChine
+                    ? $"登录预热 {remaining.TotalSeconds:F1}s"
+                    : $"Login warmup {remaining.TotalSeconds:F1}s";
                 return false;
             }
 
@@ -1745,7 +1887,7 @@ namespace HeelsDesignLinker
             if (ipcDataChanged || drawDataChanged)
             {
                 if (drawDataChanged)
-                    appearancePopulatedSinceUtc = null;
+                    ResetAppearanceReadyTracking();
 
                 stableTrackingRuleIndex = -1;
                 ruleMatchStableSinceUtc = null;
@@ -1929,6 +2071,10 @@ namespace HeelsDesignLinker
             if (!isGlamourerAvailable || !ActionUsesGlamourer(action))
                 return;
 
+            // 登录后首次 apply 周期跳过 Glamourer，避免在未完全投影时覆写外观
+            if (successfulApplyCyclesThisLogin == 0)
+                return;
+
             var applyKey = BuildGlamourerActionKey(action);
             if (lastAppliedActionKeys.Contains(applyKey))
                 return;
@@ -1959,6 +2105,10 @@ namespace HeelsDesignLinker
             {
                 var enabled = action.PenumbraActionKind == PenumbraActionKind.EnableMod;
                 var applyKey = $"P:SetMod:{action.PenumbraCollection}|{action.PenumbraModName}|{enabled}";
+
+                // 登录后首次 apply 跳过禁用 Mod，避免关掉尚未加载完的 Penumbra 投影
+                if (!enabled && successfulApplyCyclesThisLogin == 0)
+                    return false;
                 
                 if (!lastAppliedActionKeys.Contains(applyKey))
                 {
