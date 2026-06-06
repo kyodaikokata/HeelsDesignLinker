@@ -4,10 +4,25 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.2.0.4";
+        public const string CurrentVersion = "1.2.0.5";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.2.0.5",
+                "2026-06-07",
+                [
+                    "修复登录观察周期后首次 apply 误执行基准 /glamour revert 与 Penumbra 关 Mod 导致「一进游戏就全裸」",
+                    "登录保护期仅限时生效：结束后恢复正常 apply 速度，不再长期卡在门控",
+                    "登录保护期间禁止基准行动；等待装备 DrawData 首次呈现 + Glamourer StateFinalized",
+                    "登录保护结束后再延迟 5s 才允许基准行动，避免紧接 revert 剥掉刚加载的投影",
+                ],
+                [
+                    "Fix baseline revert / Penumbra mod-disable firing right after login observation cycle (naked on enter)",
+                    "Scope login protection to a limited post-login window; normal gameplay apply speed restored afterward",
+                    "Block baseline during login protection; wait for first equipped DrawData + Glamourer StateFinalized",
+                    "Delay baseline actions 5s after login protection ends before allowing revert",
+                ]),
             new(
                 "1.2.0.4",
                 "2026-06-07",

@@ -31,6 +31,8 @@ internal sealed class GlamourerInterop
     
     // 状态变化事件回调
     public event Action? OnStateChanged;
+    /// <summary>Glamourer 完成对指定角色的投影后触发（登录后应等待此事件再 apply）。</summary>
+    public event Action<nint>? OnStateFinalized;
     
     // 用于调试：记录事件触发次数
     public int StateChangedEventCount { get; private set; }
@@ -197,7 +199,7 @@ internal sealed class GlamourerInterop
         // 清空状态缓存
         _cachedPlayerState = null;
         _stateLastFetchedUtc = DateTime.MinValue;
-        // 触发外部事件
+        OnStateFinalized?.Invoke(actorAddress);
         OnStateChanged?.Invoke();
     }
     
