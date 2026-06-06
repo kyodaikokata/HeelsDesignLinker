@@ -4,10 +4,23 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.2.0.5";
+        public const string CurrentVersion = "1.2.0.6";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.2.0.6",
+                "2026-06-07",
+                [
+                    "修复 Penumbra/Glamourer 投影或皇帝的新衣场景下长期卡在「等待无装备外观同步」",
+                    "外观就绪改为以身体/腿部 DrawData 稳定为准，不再要求背包装备与可见模型一致",
+                    "登录保护期内门控通过后允许规则 Glamourer apply（基准行动仍禁止）",
+                ],
+                [
+                    "Fix indefinite 'waiting for unequipped appearance sync' with Penumbra/Glamourer projection or emperor's new gear",
+                    "Appearance readiness now uses stable body/legs DrawData instead of inventory vs render mismatch",
+                    "Allow rule Glamourer apply during login protection once the gate passes (baseline still blocked)",
+                ]),
             new(
                 "1.2.0.5",
                 "2026-06-07",
