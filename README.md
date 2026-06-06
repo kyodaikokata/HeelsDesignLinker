@@ -2,11 +2,19 @@
 
 **Repository:** https://github.com/kyodaikokata/HeelsDesignLinker
 
-Custom plugin repo URL:
+Custom plugin repo URL (**国服 CN**):
 
 ```
-https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/pluginmaster.json
+https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/pluginmaster.cn.json
 ```
+
+国际服 Global:
+
+```
+https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/pluginmaster.global.json
+```
+
+> `pluginmaster.json` 为旧版兼容入口，请勿在新安装中使用。
 
 ---
 
