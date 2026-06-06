@@ -4,10 +4,23 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.2.0.6";
+        public const string CurrentVersion = "1.2.0.7";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.2.0.7",
+                "2026-06-07",
+                [
+                    "登录外观就绪改为主手背包槽锚点，不受身体/腿部皇帝套或 Penumbra 投影干扰",
+                    "移除 Glamourer StateFinalized 自动 apply 门控（该事件常不触发导致长期卡在「等待 Glamourer 完成本地投影」）",
+                    "StateFinalized 不再重置外观稳定计时",
+                ],
+                [
+                    "Login appearance readiness now uses equipped main-hand inventory anchor",
+                    "Removed Glamourer StateFinalized auto-apply gate that often never fired",
+                    "StateFinalized no longer resets appearance stabilization timer",
+                ]),
             new(
                 "1.2.0.6",
                 "2026-06-07",

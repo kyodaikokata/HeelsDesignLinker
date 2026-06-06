@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using System.Text.RegularExpressions;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.ClientState.Objects.SubKinds;
@@ -31,6 +31,7 @@ namespace HeelsDesignLinker
             10039, // The Emperor's New Bracelet (手镯)
             10040, // The Emperor's New Ring (戒指)
             40940, // Smallclothes (无装备/内衣)
+            // 13775 The Emperor's New Fists 故意不在此列表：登录主手锚点仍视为已装备
         };
         
         /// <summary>皇帝套模型 ID（Model ID，国际服和国服通用）</summary>
@@ -679,10 +680,6 @@ namespace HeelsDesignLinker
         private static readonly TimeSpan PostAppearanceReadyWarmup = TimeSpan.FromSeconds(2);
         /// <summary>登录后最短保护时间，等待其他插件（Glamourer/Penumbra）完成自身投影。</summary>
         private static readonly TimeSpan MinPostLoginDelay = TimeSpan.FromSeconds(8);
-        /// <summary>Glamourer StateFinalized 之后额外稳定时间。</summary>
-        private static readonly TimeSpan GlamourerPostFinalizeDelay = TimeSpan.FromSeconds(2);
-        /// <summary>登录后若一直未收到 Glamourer finalize，超过此时间则不再等待。</summary>
-        private static readonly TimeSpan GlamourerFinalizeFallback = TimeSpan.FromSeconds(20);
         /// <summary>登录保护最长持续时间，超时后自动结束以免拖慢正常游戏。</summary>
         private static readonly TimeSpan LoginProtectionMaxDuration = TimeSpan.FromSeconds(45);
         /// <summary>登录保护结束后，再延迟一段时间才允许基准行动（避免紧接 revert 把刚加载的投影剥掉）。</summary>
@@ -693,6 +690,8 @@ namespace HeelsDesignLinker
         private DateTime? appearancePopulatedSinceUtc;
         private DateTime? autoApplyAllowedAfterUtc;
         private DateTime? lastLocalGlamourerFinalizeUtc;
+        private uint lastTrackedMainHandItemId;
+        private bool mainHandAnchorInitialized;
         private DateTime? baselineActionsAllowedAfterUtc;
         private DateTime lastApplyUtc = DateTime.MinValue;
         private string applyGateStatus = "";
@@ -1411,54 +1410,12 @@ namespace HeelsDesignLinker
                 return;
 
             lastLocalGlamourerFinalizeUtc = DateTime.UtcNow;
-            if (IsLoginProtectionActive())
-                ResetAppearanceReadyTracking();
         }
 
         private bool IsPlayerInWorld()
         {
             if (Condition[ConditionFlag.BetweenAreas] || Condition[ConditionFlag.BetweenAreas51])
                 return false;
-
-            return true;
-        }
-
-        private bool IsGlamourerLoginProjectionReady(out string status)
-        {
-            status = "";
-
-            if (!IsLoginProtectionActive())
-                return true;
-
-            if (!ConfigurationUsesGlamourer() || !isGlamourerAvailable)
-                return true;
-
-            var loginAge = loginSinceUtc.HasValue
-                ? DateTime.UtcNow - loginSinceUtc.Value
-                : TimeSpan.Zero;
-
-            if (!lastLocalGlamourerFinalizeUtc.HasValue)
-            {
-                if (loginAge < GlamourerFinalizeFallback)
-                {
-                    status = Localization.IsChine
-                        ? "等待 Glamourer 完成本地投影"
-                        : "Waiting for Glamourer local projection finalize";
-                    return false;
-                }
-
-                return true;
-            }
-
-            var sinceFinalize = DateTime.UtcNow - lastLocalGlamourerFinalizeUtc.Value;
-            if (sinceFinalize < GlamourerPostFinalizeDelay)
-            {
-                var remaining = GlamourerPostFinalizeDelay - sinceFinalize;
-                status = Localization.IsChine
-                    ? $"Glamourer 投影稳定中 {remaining.TotalSeconds:F1}s"
-                    : $"Glamourer projection stabilizing {remaining.TotalSeconds:F1}s";
-                return false;
-            }
 
             return true;
         }
@@ -1566,7 +1523,6 @@ namespace HeelsDesignLinker
             appearancePopulatedSinceUtc = null;
             autoApplyAllowedAfterUtc = null;
             lastLocalGlamourerFinalizeUtc = null;
-            hasSeenEquippedAppearanceSinceLogin = false;
             baselineActionsAllowedAfterUtc = null;
             lastApplyUtc = DateTime.MinValue;
             lastAppliedActionKeys.Clear();
@@ -1680,44 +1636,34 @@ namespace HeelsDesignLinker
         {
             appearancePopulatedSinceUtc = null;
             autoApplyAllowedAfterUtc = null;
+            mainHandAnchorInitialized = false;
         }
 
-        private static bool IsRenderableEquipmentModel(ushort modelId) =>
-            modelId != 0 && !EmperorsNewItems.IsEmperorsNewByModelId(modelId);
+        /// <summary>主手槽在登录后几乎恒定有装备；皇帝拳套 13775 不在皇帝套列表，仍视为有效锚点。</summary>
+        private static bool IsMainHandAppearanceAnchor(uint itemId) => itemId != 0;
 
-        /// <summary>
-        /// 以 DrawData 投影为准判断外观是否稳定。
-        /// Penumbra / Glamourer 投影、皇帝的新衣等场景下背包「装备」与可见模型常不一致，不能据此死等。
-        /// </summary>
-        private static bool IsAppearanceStateSettled(
-            ushort bodyModelId,
-            ushort legsModelId,
-            out bool isUnequipped,
-            out string status)
+        private unsafe bool TryGetMainHandEquippedItemId(out uint itemId)
         {
-            isUnequipped = false;
-            status = "";
+            itemId = 0;
 
-            var bodyDrawReady = IsRenderableEquipmentModel(bodyModelId);
-            var legsDrawReady = IsRenderableEquipmentModel(legsModelId);
+            var inventoryManager = InventoryManager.Instance();
+            if (inventoryManager == null)
+                return false;
 
-            if (bodyDrawReady && legsDrawReady)
-                return true;
+            var container = inventoryManager->GetInventoryContainer(InventoryType.EquippedItems);
+            if (container == null)
+                return false;
 
-            if (!bodyDrawReady && !legsDrawReady)
-            {
-                isUnequipped = true;
-                return true;
-            }
+            var item = container->GetInventorySlot(0);
+            if (item == null)
+                return false;
 
-            status = !bodyDrawReady
-                ? (Localization.IsChine ? "等待身体外观加载" : "Waiting for body appearance")
-                : (Localization.IsChine ? "等待腿部外观加载" : "Waiting for legs appearance");
-            return false;
+            itemId = item->ItemId;
+            return true;
         }
 
-        /// <summary>登录后外观是否已稳定（DrawData 投影稳定），避免误触发 apply。</summary>
-        private unsafe bool IsCharacterAppearanceReady(out string status)
+        /// <summary>登录后外观是否已稳定（主手背包槽稳定），避免误触发 apply。</summary>
+        private bool IsCharacterAppearanceReady(out string status)
         {
             status = "";
 
@@ -1731,61 +1677,34 @@ namespace HeelsDesignLinker
                 return false;
             }
 
-            var localPlayer = ObjectTable.LocalPlayer;
-            if (localPlayer == null)
+            if (!TryGetMainHandEquippedItemId(out var mainHandItemId))
             {
                 ResetAppearanceReadyTracking();
-                status = Localization.IsChine ? "等待本地角色对象" : "Waiting for local player object";
+                status = Localization.IsChine ? "等待主手装备数据" : "Waiting for main-hand equipment data";
                 return false;
             }
 
-            var character = (FFXIVClientStructs.FFXIV.Client.Game.Character.Character*)localPlayer.Address;
-            if (character == null)
+            if (!IsMainHandAppearanceAnchor(mainHandItemId))
             {
                 ResetAppearanceReadyTracking();
-                status = Localization.IsChine ? "等待角色模型" : "Waiting for character model";
+                status = Localization.IsChine ? "等待主手装备加载" : "Waiting for main-hand equipment";
                 return false;
             }
 
-            var bodyModelId = character->DrawData.EquipmentModelIds[1].Id;
-            var legsModelId = character->DrawData.EquipmentModelIds[3].Id;
-
-            if (!IsAppearanceStateSettled(bodyModelId, legsModelId, out var isUnequipped, out var settleStatus))
-            {
+            if (mainHandAnchorInitialized && mainHandItemId != lastTrackedMainHandItemId)
                 ResetAppearanceReadyTracking();
-                status = settleStatus;
-                return false;
-            }
 
-            if (ConfigurationUsesGlamourer() && isGlamourerAvailable)
-            {
-                if (!_glamourerInterop.IsIpcAvailable())
-                {
-                    ResetAppearanceReadyTracking();
-                    status = Localization.IsChine ? "等待 Glamourer IPC" : "Waiting for Glamourer IPC";
-                    return false;
-                }
-
-                if (_glamourerInterop.GetLocalPlayerState(forceRefresh: true) == null)
-                {
-                    ResetAppearanceReadyTracking();
-                    status = Localization.IsChine ? "等待 Glamourer 角色状态" : "Waiting for Glamourer player state";
-                    return false;
-                }
-            }
+            lastTrackedMainHandItemId = mainHandItemId;
+            mainHandAnchorInitialized = true;
 
             appearancePopulatedSinceUtc ??= DateTime.UtcNow;
             var stableElapsed = DateTime.UtcNow - appearancePopulatedSinceUtc.Value;
             if (stableElapsed < AppearanceStableDelay)
             {
                 var remaining = AppearanceStableDelay - stableElapsed;
-                status = isUnequipped
-                    ? (Localization.IsChine
-                        ? $"无装备，稳定中 {remaining.TotalSeconds:F1}s"
-                        : $"Unequipped, stabilizing {remaining.TotalSeconds:F1}s")
-                    : (Localization.IsChine
-                        ? $"外观稳定中 {remaining.TotalSeconds:F1}s"
-                        : $"Appearance stabilizing {remaining.TotalSeconds:F1}s");
+                status = Localization.IsChine
+                    ? $"主手装备稳定中 {remaining.TotalSeconds:F1}s"
+                    : $"Main-hand anchor stabilizing {remaining.TotalSeconds:F1}s";
                 return false;
             }
 
@@ -1798,8 +1717,6 @@ namespace HeelsDesignLinker
                     : $"Login warmup {remaining.TotalSeconds:F1}s";
                 return false;
             }
-
-            hasSeenEquippedAppearanceSinceLogin = true;
 
             return true;
         }
@@ -1861,12 +1778,6 @@ namespace HeelsDesignLinker
             if (!IsCharacterAppearanceReady(out var appearanceStatus))
             {
                 gateStatus = appearanceStatus;
-                return false;
-            }
-
-            if (!IsGlamourerLoginProjectionReady(out var glamFinalizeStatus))
-            {
-                gateStatus = glamFinalizeStatus;
                 return false;
             }
 
