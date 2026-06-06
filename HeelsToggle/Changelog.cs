@@ -4,10 +4,23 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.2.0.7";
+        public const string CurrentVersion = "1.2.0.8";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.2.0.8",
+                "2026-06-07",
+                [
+                    "修复与 Glamourer 联动导致登录裸体：登录预热完成前不再评估规则/轮询 GetState",
+                    "装备条件在 Glamourer 状态未就绪时视为不满足，避免误匹配「全裸」规则",
+                    "等待 Glamourer 本地投影信号后再评估装备条件；基准 Glamourer revert 登录后 90s 内禁止",
+                ],
+                [
+                    "Fix naked login with Glamourer: defer rule evaluation and GetState polling until session warmup",
+                    "Equipment conditions fail closed while Glamourer state is not ready",
+                    "Wait for local Glamourer projection signal before equipment checks; block baseline revert for 90s",
+                ]),
             new(
                 "1.2.0.7",
                 "2026-06-07",

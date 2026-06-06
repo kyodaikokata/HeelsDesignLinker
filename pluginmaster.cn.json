@@ -22,9 +22,9 @@
                          "other"
                      ],
     "DalamudApiLevel":  15,
-    "AssemblyVersion":  "1.2.0.7",
+    "AssemblyVersion":  "1.2.0.8",
     "Changelog":  "1.2.0.5: Fix login baseline revert naked bug; scoped login protection; delayed baseline after login.",
-    "LastUpdate": "1780772628",
+    "LastUpdate": "1780773457",
     "RepoUrl":  "https://github.com/kyodaikokata/HeelsDesignLinker",
     "DownloadLinkInstall":  "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsDesignLinker/latest-cn.zip",
     "DownloadLinkUpdate":  "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsDesignLinker/latest-cn.zip",

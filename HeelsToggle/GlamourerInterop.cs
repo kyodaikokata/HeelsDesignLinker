@@ -52,6 +52,8 @@ internal sealed class GlamourerInterop
     private JObject? _cachedPlayerState;
     private DateTime _stateLastFetchedUtc = DateTime.MinValue;
     private static readonly TimeSpan StateCacheTimeout = TimeSpan.FromMilliseconds(100); // 短暂缓存，避免同一帧多次查询
+    private DateTime? _localProjectionFirstSignalUtc;
+    private bool _localProjectionSettled;
 
     public GlamourerInterop(IDalamudPluginInterface pluginInterface, IObjectTable? objectTable = null)
     {
@@ -176,31 +178,95 @@ internal sealed class GlamourerInterop
     private void OnGlamourerStateChangedV2(nint actorAddress)
     {
         StateChangedEventCount++;
-        // 清空状态缓存
+        NoteLocalPlayerProjectionSignal(actorAddress);
         _cachedPlayerState = null;
         _stateLastFetchedUtc = DateTime.MinValue;
-        // 触发外部事件
         OnStateChanged?.Invoke();
     }
     
     private void OnGlamourerStateChangedWithType(nint actorAddress, int changeType)
     {
         StateChangedWithTypeEventCount++;
-        // 清空状态缓存
+        NoteLocalPlayerProjectionSignal(actorAddress);
         _cachedPlayerState = null;
         _stateLastFetchedUtc = DateTime.MinValue;
-        // 触发外部事件
         OnStateChanged?.Invoke();
     }
     
     private void OnGlamourerStateFinalized(nint actorAddress)
     {
         StateFinalizedEventCount++;
-        // 清空状态缓存
+        NoteLocalPlayerProjectionSignal(actorAddress);
         _cachedPlayerState = null;
         _stateLastFetchedUtc = DateTime.MinValue;
         OnStateFinalized?.Invoke(actorAddress);
         OnStateChanged?.Invoke();
+    }
+
+    public void ResetLoginProjectionTracking()
+    {
+        _localProjectionFirstSignalUtc = null;
+        _localProjectionSettled = false;
+    }
+
+    private void NoteLocalPlayerProjectionSignal(nint actorAddress)
+    {
+        if (!IsLocalPlayerAddress(actorAddress))
+            return;
+
+        _localProjectionFirstSignalUtc ??= DateTime.UtcNow;
+    }
+
+    private bool IsLocalPlayerAddress(nint actorAddress)
+    {
+        if (_objectTable == null || actorAddress == nint.Zero)
+            return false;
+
+        try
+        {
+            var localPlayer = _objectTable.LocalPlayer;
+            return localPlayer != null && localPlayer.IsValid() && localPlayer.Address == actorAddress;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>登录后是否允许通过 GetState 评估装备条件（避免在 Glamourer 投影完成前轮询 IPC）。</summary>
+    public bool IsEquipmentEvaluationAllowed(
+        DateTime? loginSinceUtc,
+        TimeSpan settleDelay,
+        TimeSpan fallbackDelay,
+        out string status)
+    {
+        status = "";
+
+        if (_localProjectionSettled)
+            return true;
+
+        if (_localProjectionFirstSignalUtc.HasValue)
+        {
+            var elapsed = DateTime.UtcNow - _localProjectionFirstSignalUtc.Value;
+            if (elapsed >= settleDelay)
+            {
+                _localProjectionSettled = true;
+                return true;
+            }
+
+            var remaining = settleDelay - elapsed;
+            status = $"Glamourer 装备状态稳定中 {remaining.TotalSeconds:F1}s";
+            return false;
+        }
+
+        if (loginSinceUtc.HasValue && DateTime.UtcNow - loginSinceUtc.Value >= fallbackDelay)
+        {
+            _localProjectionSettled = true;
+            return true;
+        }
+
+        status = "等待 Glamourer 本地投影";
+        return false;
     }
     
     private void OnGlamourerGPoseChanged(bool inGPose)
@@ -697,10 +763,13 @@ internal sealed class GlamourerInterop
     /// 如果 Glamourer 不可用，使用 DrawData 获取渲染外观（包括游戏内投影）
     /// 皇帝套（隐形装备）将被视为未装备
     /// </summary>
-    public unsafe bool? HasEquipmentInSlotForLocalPlayer(EquipSlot slot)
+    public unsafe bool? HasEquipmentInSlotForLocalPlayer(EquipSlot slot, bool allowStateQuery = true)
     {
         try
         {
+            if (!allowStateQuery)
+                return null;
+
             // 方法 1: 优先使用 Glamourer 状态（包含 Glamourer 复写和实际投影）
             var state = GetLocalPlayerState();
             if (state != null)

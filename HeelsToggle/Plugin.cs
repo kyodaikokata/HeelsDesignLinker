@@ -276,16 +276,16 @@ namespace HeelsDesignLinker
         
         public override bool Evaluate(RuleEvaluationContext context)
         {
+            if (!context.AllowEquipmentEvaluation)
+                return false;
+
             // 使用 Glamourer 获取投影后的装备状态
             if (context.GlamourerInterop == null)
                 return true;  // Glamourer 不可用时，忽略此条件
             
             var hasEquipment = context.GlamourerInterop.HasEquipmentInSlotForLocalPlayer(Slot);
             if (hasEquipment == null)
-            {
-                // 无法检测时，忽略此条件（允许规则继续匹配）
-                return true;
-            }
+                return false;  // 无法确认时视为不满足，避免登录加载中误匹配「全裸」等规则
                 
             return hasEquipment.Value == MustBeEquipped;
         }
@@ -325,6 +325,8 @@ namespace HeelsDesignLinker
         public string? CharacterName { get; set; }
         public IPlayerCharacter? LocalPlayer { get; set; }
         internal GlamourerInterop? GlamourerInterop { get; set; }
+        /// <summary>登录预热完成前为 false，禁止装备条件评估与 Glamourer GetState 轮询。</summary>
+        public bool AllowEquipmentEvaluation { get; set; }
     }
     
     /// <summary>RuleCondition 的 JSON 转换器（支持多态）</summary>
@@ -684,8 +686,15 @@ namespace HeelsDesignLinker
         private static readonly TimeSpan LoginProtectionMaxDuration = TimeSpan.FromSeconds(45);
         /// <summary>登录保护结束后，再延迟一段时间才允许基准行动（避免紧接 revert 把刚加载的投影剥掉）。</summary>
         private static readonly TimeSpan PostLoginBaselineDelay = TimeSpan.FromSeconds(5);
+        /// <summary>收到 Glamourer 本地投影信号后，再稳定一段时间才允许规则评估。</summary>
+        private static readonly TimeSpan GlamourerEquipmentSettleDelay = TimeSpan.FromSeconds(2);
+        /// <summary>若 Glamourer 始终未发出本地投影信号，超过此时间后允许装备条件评估（兜底）。</summary>
+        private static readonly TimeSpan GlamourerEquipmentFallback = TimeSpan.FromSeconds(25);
+        /// <summary>登录后延迟多久才允许基准 Glamourer revert（与规则 Glamourer apply 无关）。</summary>
+        private static readonly TimeSpan BaselineGlamourerRevertDelay = TimeSpan.FromSeconds(90);
         private DateTime? loginSinceUtc;
         private bool isLoginProtectionActive = true;
+        private bool sessionWorkUnlocked;
         private DateTime? localPlayerStableSinceUtc;
         private DateTime? appearancePopulatedSinceUtc;
         private DateTime? autoApplyAllowedAfterUtc;
@@ -1365,6 +1374,8 @@ namespace HeelsDesignLinker
         {
             loginSinceUtc = DateTime.UtcNow;
             isLoginProtectionActive = true;
+            sessionWorkUnlocked = false;
+            _glamourerInterop.ResetLoginProjectionTracking();
             ResetApplyState();
             drawDataInitialized = false;
         }
@@ -1403,6 +1414,14 @@ namespace HeelsDesignLinker
                    || DateTime.UtcNow >= baselineActionsAllowedAfterUtc.Value;
         }
 
+        private bool IsBaselineGlamourerRevertAllowed()
+        {
+            if (!loginSinceUtc.HasValue)
+                return true;
+
+            return DateTime.UtcNow - loginSinceUtc.Value >= BaselineGlamourerRevertDelay;
+        }
+
         private void OnGlamourerStateFinalized(nint actorAddress)
         {
             var localPlayer = ObjectTable.LocalPlayer;
@@ -1422,26 +1441,23 @@ namespace HeelsDesignLinker
 
         private void OnLogout(int type, int code)
         {
+            sessionWorkUnlocked = false;
+            _glamourerInterop.ResetLoginProjectionTracking();
             ResetApplyState();
             drawDataInitialized = false;
         }
         
         private void OnGlamourerStateChanged()
         {
-            // Glamourer 状态变化时，强制重新评估规则
-            // Glamourer 直接修改游戏内存，不经过 Penumbra redraw，所以 DrawData 可能更新较慢
+            // 登录预热期间 Glamourer 正在投影，此时重置 DrawData/稳定性会干扰门控并放大 IPC 轮询
+            if (!sessionWorkUnlocked)
+                return;
+
             try
             {
-                
-                // 清空 DrawData 缓存，强制下一帧重新读取
                 Array.Clear(lastDrawDataModelIds, 0, lastDrawDataModelIds.Length);
                 drawDataInitialized = false;
-                
-                // Glamourer 修改后，游戏需要几帧来更新 DrawData
-                // 强制后续 30 帧都检查 DrawData（约 0.5 秒 @ 60fps）
                 forceDrawDataCheckFrames = 30;
-                
-                // 立即重置规则匹配稳定状态（触发规则重新评估）
                 stableTrackingRuleIndex = -1;
                 ruleMatchStableSinceUtc = null;
             }
@@ -1721,8 +1737,31 @@ namespace HeelsDesignLinker
             return true;
         }
 
-        private bool CanAutoApply(out string gateStatus)
+        private bool ConfigurationUsesEquipmentConditions()
         {
+            foreach (var rule in ActiveRules)
+            {
+                if (!rule.IsActive || rule.ConditionGroups == null)
+                    continue;
+
+                foreach (var group in rule.ConditionGroups)
+                {
+                    if (group.Conditions.Any(c => c is EquipmentCondition))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 会话工作门控：登录后延迟插件实际工作（规则评估、Glamourer GetState、自动 apply），
+        /// 避免在 Glamourer 完成本地投影前误匹配装备条件或干扰其 IPC。
+        /// </summary>
+        private bool IsSessionWorkAllowed(out string gateStatus)
+        {
+            gateStatus = "";
+
             if (!ClientState.IsLoggedIn)
             {
                 localPlayerStableSinceUtc = null;
@@ -1743,7 +1782,7 @@ namespace HeelsDesignLinker
                 return false;
             }
 
-            if (!IsLoginProtectionActive())
+            if (sessionWorkUnlocked)
             {
                 gateStatus = Localization.IsChine ? "可自动应用" : "Ready to apply";
                 return true;
@@ -1769,8 +1808,8 @@ namespace HeelsDesignLinker
                 {
                     var remaining = MinPostLoginDelay - loginElapsed;
                     gateStatus = Localization.IsChine
-                        ? $"登录保护 {remaining.TotalSeconds:F1}s"
-                        : $"Login protection {remaining.TotalSeconds:F1}s";
+                        ? $"登录预热 {remaining.TotalSeconds:F1}s"
+                        : $"Login warmup {remaining.TotalSeconds:F1}s";
                     return false;
                 }
             }
@@ -1781,7 +1820,28 @@ namespace HeelsDesignLinker
                 return false;
             }
 
-            gateStatus = Localization.IsChine ? "可自动应用（登录保护）" : "Ready (login protection)";
+            if (ConfigurationUsesEquipmentConditions() && isGlamourerAvailable)
+            {
+                if (!_glamourerInterop.IsEquipmentEvaluationAllowed(
+                        loginSinceUtc,
+                        GlamourerEquipmentSettleDelay,
+                        GlamourerEquipmentFallback,
+                        out var glamWait))
+                {
+                    gateStatus = Localization.IsChine
+                        ? glamWait
+                        : glamWait switch
+                        {
+                            var s when s.StartsWith("Glamourer 装备状态稳定中") =>
+                                s.Replace("Glamourer 装备状态稳定中", "Glamourer equipment stabilizing"),
+                            _ => "Waiting for Glamourer local projection",
+                        };
+                    return false;
+                }
+            }
+
+            sessionWorkUnlocked = true;
+            gateStatus = Localization.IsChine ? "可自动应用" : "Ready to apply";
             return true;
         }
 
@@ -1796,6 +1856,8 @@ namespace HeelsDesignLinker
                 applyGateStatus = Localization.IsChine ? "未登录" : "Not logged in";
                 loginSinceUtc = null;
                 isLoginProtectionActive = false;
+                sessionWorkUnlocked = false;
+                _glamourerInterop.ResetLoginProjectionTracking();
                 ResetApplyState();
                 lastIpcDataHash = "";
                 drawDataInitialized = false; // 登出时重置
@@ -1894,6 +1956,10 @@ namespace HeelsDesignLinker
                 ruleMatchStableSinceUtc = null;
             }
 
+            applyGateStatus = "";
+            if (!IsSessionWorkAllowed(out applyGateStatus))
+                return;
+
             HeelsRule? matchedRule = null;
             currentMatchedRuleIndex = -1;
 
@@ -1901,7 +1967,7 @@ namespace HeelsDesignLinker
             for (int i = 0; i < activeRules.Count; i++)
             {
                 var rule = activeRules[i];
-                if (TryMatchRule(rule, i, currentHeelsHeight))
+                if (TryMatchRule(rule, i, currentHeelsHeight, allowEquipmentEvaluation: true))
                 {
                     currentMatchedRuleIndex = i;
                     matchedRule = rule;
@@ -1909,11 +1975,7 @@ namespace HeelsDesignLinker
                 }
             }
 
-            applyGateStatus = "";
             UpdateRuleMatchStability(currentMatchedRuleIndex);
-
-            if (!CanAutoApply(out applyGateStatus))
-                return;
 
             var localPlayer = ObjectTable.LocalPlayer;
 
@@ -2769,7 +2831,7 @@ namespace HeelsDesignLinker
                 if (lastAppliedActionKeys.Contains(applyKey))
                     return;
 
-                if (IsLoginProtectionActive())
+                if (IsLoginProtectionActive() || !IsBaselineGlamourerRevertAllowed())
                     return;
 
                 try
@@ -6572,20 +6634,6 @@ namespace HeelsDesignLinker
             }
         }
         
-        private bool ConfigurationUsesEquipmentConditions()
-        {
-            // 检查是否有任何规则使用了装备条件
-            foreach (var rule in ActiveRules)
-            {
-                if (rule.ConditionGroup?.Conditions != null)
-                {
-                    if (rule.ConditionGroup.Conditions.Any(c => c is EquipmentCondition))
-                        return true;
-                }
-            }
-            return false;
-        }
-        
         private void DrawGlamourerEquipmentStatus()
         {
             if (!isGlamourerAvailable || _glamourerInterop == null)
@@ -6869,7 +6917,7 @@ namespace HeelsDesignLinker
             }
         }
 
-        private bool TryMatchRule(HeelsRule rule, int ruleIndex, float height)
+        private bool TryMatchRule(HeelsRule rule, int ruleIndex, float height, bool allowEquipmentEvaluation)
         {
             if (!rule.IsActive)
                 return false;
@@ -6881,64 +6929,46 @@ namespace HeelsDesignLinker
             // 注意：即使 ConditionGroups 为空列表，也使用新系统（空列表代表无条件，总是匹配）
             if (rule.ConditionGroups != null)
             {
-                var localPlayer = ObjectTable?.LocalPlayer;
-                string? characterName = null;
-                if (localPlayer != null)
-                {
-                    try
-                    {
-                        var worldName = localPlayer.HomeWorld.Value.Name.ToString();
-                        characterName = $"{localPlayer.Name}@{worldName}";
-                    }
-                    catch
-                    {
-                        // 如果获取角色名失败，使用 null
-                        characterName = null;
-                    }
-                }
-                
-                var context = new RuleEvaluationContext
-                {
-                    CurrentHeight = height,
-                    CharacterName = characterName,
-                    LocalPlayer = localPlayer,
-                    GlamourerInterop = _glamourerInterop
-                };
-                
+                var context = BuildRuleEvaluationContext(height, allowEquipmentEvaluation);
                 return EvaluateConditionGroups(rule.ConditionGroups, context);
             }
             
             // 向后兼容：如果有旧的单个 ConditionGroup（迁移时使用）
             if (rule.ConditionGroup != null)
             {
-                var localPlayer = ObjectTable?.LocalPlayer;
-                string? characterName = null;
-                if (localPlayer != null)
-                {
-                    try
-                    {
-                        var worldName = localPlayer.HomeWorld.Value.Name.ToString();
-                        characterName = $"{localPlayer.Name}@{worldName}";
-                    }
-                    catch
-                    {
-                        characterName = null;
-                    }
-                }
-                
-                var context = new RuleEvaluationContext
-                {
-                    CurrentHeight = height,
-                    CharacterName = characterName,
-                    LocalPlayer = localPlayer,
-                    GlamourerInterop = _glamourerInterop
-                };
-                
+                var context = BuildRuleEvaluationContext(height, allowEquipmentEvaluation);
                 return rule.ConditionGroup.Evaluate(context);
             }
 
             // 向后兼容：如果没有 ConditionGroup，使用旧的高度比较逻辑
             return RuleMatchesHeightCondition(rule, height);
+        }
+
+        private RuleEvaluationContext BuildRuleEvaluationContext(float height, bool allowEquipmentEvaluation)
+        {
+            var localPlayer = ObjectTable?.LocalPlayer;
+            string? characterName = null;
+            if (localPlayer != null)
+            {
+                try
+                {
+                    var worldName = localPlayer.HomeWorld.Value.Name.ToString();
+                    characterName = $"{localPlayer.Name}@{worldName}";
+                }
+                catch
+                {
+                    characterName = null;
+                }
+            }
+
+            return new RuleEvaluationContext
+            {
+                CurrentHeight = height,
+                CharacterName = characterName,
+                LocalPlayer = localPlayer,
+                GlamourerInterop = _glamourerInterop,
+                AllowEquipmentEvaluation = allowEquipmentEvaluation,
+            };
         }
         
         /// <summary>
