@@ -763,6 +763,47 @@ internal sealed class GlamourerInterop
     /// 如果 Glamourer 不可用，使用 DrawData 获取渲染外观（包括游戏内投影）
     /// 皇帝套（隐形装备）将被视为未装备
     /// </summary>
+    private static bool IsRealInventoryEquipment(uint itemId) =>
+        itemId != 0 && !EmperorsNewItems.IsEmperorsNewByItemId(itemId);
+
+    private unsafe bool? TryGetInventoryHasRealEquipment(EquipSlot slot)
+    {
+        var inventoryManager = FFXIVClientStructs.FFXIV.Client.Game.InventoryManager.Instance();
+        if (inventoryManager == null)
+            return null;
+
+        var container = inventoryManager->GetInventoryContainer(
+            FFXIVClientStructs.FFXIV.Client.Game.InventoryType.EquippedItems);
+        if (container == null)
+            return null;
+
+        var equipSlotIndex = slot switch
+        {
+            EquipSlot.MainHand => 0,
+            EquipSlot.OffHand => 1,
+            EquipSlot.Head => 2,
+            EquipSlot.Body => 3,
+            EquipSlot.Hands => 4,
+            EquipSlot.Legs => 6,
+            EquipSlot.Feet => 7,
+            EquipSlot.Ears => 8,
+            EquipSlot.Neck => 9,
+            EquipSlot.Wrists => 10,
+            EquipSlot.RFinger => 11,
+            EquipSlot.LFinger => 12,
+            _ => -1,
+        };
+
+        if (equipSlotIndex < 0)
+            return null;
+
+        var item = container->GetInventorySlot(equipSlotIndex);
+        if (item == null)
+            return null;
+
+        return IsRealInventoryEquipment(item->ItemId);
+    }
+
     public unsafe bool? HasEquipmentInSlotForLocalPlayer(EquipSlot slot, bool allowStateQuery = true)
     {
         try
@@ -770,13 +811,21 @@ internal sealed class GlamourerInterop
             if (!allowStateQuery)
                 return null;
 
+            var inventoryEquipped = TryGetInventoryHasRealEquipment(slot);
+
             // 方法 1: 优先使用 Glamourer 状态（包含 Glamourer 复写和实际投影）
             var state = GetLocalPlayerState();
             if (state != null)
             {
                 var hasEquip = CheckEquipmentInState(state, slot);
                 if (hasEquip.HasValue)
+                {
+                    // 登录投影期间 Glamourer 常报「未装备」，背包已有鞋/衣 → 视为未同步，避免误匹配「全裸」
+                    if (inventoryEquipped.HasValue && hasEquip.Value != inventoryEquipped.Value)
+                        return null;
+
                     return hasEquip;
+                }
             }
             
             // 方法 2: 如果 Glamourer 不可用，使用 DrawData + InventoryManager 组合检查

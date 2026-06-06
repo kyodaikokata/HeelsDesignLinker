@@ -4,10 +4,25 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.2.0.8";
+        public const string CurrentVersion = "1.2.0.9";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.2.0.9",
+                "2026-06-07",
+                [
+                    "恢复设计意图：登录保护期内完全不进行规则匹配与 apply，保护结束后才走 RuleMatchStableSeconds",
+                    "移除首次 apply 即结束登录保护、以及登录期内提前规则评估（IsRuleEvaluationAllowed）",
+                    "装备条件：Glamourer 与背包不一致视为未同步；修复稳定计时 restore 逻辑跳过匹配延迟",
+                    "首次进入游戏若 Login 事件未触发，补全 ResetApplyState 初始化",
+                ],
+                [
+                    "Restore intent: no rule matching/apply during login protection; RuleMatchStableSeconds after it ends",
+                    "Remove ending login protection on first apply and in-login early rule evaluation",
+                    "Equipment Glamourer vs inventory mismatch unsynced; fix stability timer restore skipping delay",
+                    "Reset apply state when login timestamp is first set if Login event did not fire",
+                ]),
             new(
                 "1.2.0.8",
                 "2026-06-07",

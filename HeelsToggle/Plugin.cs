@@ -676,12 +676,10 @@ namespace HeelsDesignLinker
 
         /// <summary>本地玩家对象稳定就绪后，再等待一段时间才自动 apply，避免 &lt;me&gt; 未解析。</summary>
         private static readonly TimeSpan AutoApplyStartupDelay = TimeSpan.FromSeconds(3);
-        /// <summary>DrawData 装备外观首次就绪后，再等待一段时间才 apply，避免登录后裸体模型阶段误触发 Glamourer/Penumbra。</summary>
-        private static readonly TimeSpan AppearanceStableDelay = TimeSpan.FromSeconds(2.5);
-        /// <summary>外观检测全部通过后，再额外等待一段时间才允许任何自动 apply（含规则行动）。</summary>
-        private static readonly TimeSpan PostAppearanceReadyWarmup = TimeSpan.FromSeconds(2);
-        /// <summary>登录后最短保护时间，等待其他插件（Glamourer/Penumbra）完成自身投影。</summary>
-        private static readonly TimeSpan MinPostLoginDelay = TimeSpan.FromSeconds(8);
+        /// <summary>登录保护期内主手锚点稳定时间，满足后才结束保护并允许规则匹配。</summary>
+        private static readonly TimeSpan LoginMainHandStableDelay = TimeSpan.FromSeconds(2);
+        /// <summary>登录保护期内最短等待，期间不进行任何规则匹配与 apply。</summary>
+        private static readonly TimeSpan MinPostLoginProtectionDelay = TimeSpan.FromSeconds(5);
         /// <summary>登录保护最长持续时间，超时后自动结束以免拖慢正常游戏。</summary>
         private static readonly TimeSpan LoginProtectionMaxDuration = TimeSpan.FromSeconds(45);
         /// <summary>登录保护结束后，再延迟一段时间才允许基准行动（避免紧接 revert 把刚加载的投影剥掉）。</summary>
@@ -694,10 +692,8 @@ namespace HeelsDesignLinker
         private static readonly TimeSpan BaselineGlamourerRevertDelay = TimeSpan.FromSeconds(90);
         private DateTime? loginSinceUtc;
         private bool isLoginProtectionActive = true;
-        private bool sessionWorkUnlocked;
         private DateTime? localPlayerStableSinceUtc;
         private DateTime? appearancePopulatedSinceUtc;
-        private DateTime? autoApplyAllowedAfterUtc;
         private DateTime? lastLocalGlamourerFinalizeUtc;
         private uint lastTrackedMainHandItemId;
         private bool mainHandAnchorInitialized;
@@ -1374,7 +1370,6 @@ namespace HeelsDesignLinker
         {
             loginSinceUtc = DateTime.UtcNow;
             isLoginProtectionActive = true;
-            sessionWorkUnlocked = false;
             _glamourerInterop.ResetLoginProjectionTracking();
             ResetApplyState();
             drawDataInitialized = false;
@@ -1441,7 +1436,6 @@ namespace HeelsDesignLinker
 
         private void OnLogout(int type, int code)
         {
-            sessionWorkUnlocked = false;
             _glamourerInterop.ResetLoginProjectionTracking();
             ResetApplyState();
             drawDataInitialized = false;
@@ -1449,8 +1443,7 @@ namespace HeelsDesignLinker
         
         private void OnGlamourerStateChanged()
         {
-            // 登录预热期间 Glamourer 正在投影，此时重置 DrawData/稳定性会干扰门控并放大 IPC 轮询
-            if (!sessionWorkUnlocked)
+            if (IsLoginProtectionActive())
                 return;
 
             try
@@ -1537,7 +1530,6 @@ namespace HeelsDesignLinker
         {
             localPlayerStableSinceUtc = null;
             appearancePopulatedSinceUtc = null;
-            autoApplyAllowedAfterUtc = null;
             lastLocalGlamourerFinalizeUtc = null;
             baselineActionsAllowedAfterUtc = null;
             lastApplyUtc = DateTime.MinValue;
@@ -1551,16 +1543,8 @@ namespace HeelsDesignLinker
 
         private void UpdateRuleMatchStability(int matchedRuleIndex)
         {
-            // 如果规则没变，但稳定性时间被重置了（比如因为DrawData变化），需要恢复
             if (matchedRuleIndex == stableTrackingRuleIndex)
-            {
-                // 如果稳定性时间是null但规则匹配了，恢复它
-                if (matchedRuleIndex >= 0 && !ruleMatchStableSinceUtc.HasValue)
-                {
-                    ruleMatchStableSinceUtc = DateTime.UtcNow;
-                }
                 return;
-            }
 
             // 规则改变时，立即清除已应用的action keys
             // 这样等稳定性延迟过后，action会重新执行
@@ -1651,7 +1635,6 @@ namespace HeelsDesignLinker
         private void ResetAppearanceReadyTracking()
         {
             appearancePopulatedSinceUtc = null;
-            autoApplyAllowedAfterUtc = null;
             mainHandAnchorInitialized = false;
         }
 
@@ -1678,8 +1661,8 @@ namespace HeelsDesignLinker
             return true;
         }
 
-        /// <summary>登录后外观是否已稳定（主手背包槽稳定），避免误触发 apply。</summary>
-        private bool IsCharacterAppearanceReady(out string status)
+        /// <summary>主手背包槽是否已稳定，作为登录外观锚点。</summary>
+        private bool IsMainHandAnchorReady(TimeSpan stableDelay, out string status)
         {
             status = "";
 
@@ -1715,22 +1698,12 @@ namespace HeelsDesignLinker
 
             appearancePopulatedSinceUtc ??= DateTime.UtcNow;
             var stableElapsed = DateTime.UtcNow - appearancePopulatedSinceUtc.Value;
-            if (stableElapsed < AppearanceStableDelay)
+            if (stableElapsed < stableDelay)
             {
-                var remaining = AppearanceStableDelay - stableElapsed;
+                var remaining = stableDelay - stableElapsed;
                 status = Localization.IsChine
                     ? $"主手装备稳定中 {remaining.TotalSeconds:F1}s"
                     : $"Main-hand anchor stabilizing {remaining.TotalSeconds:F1}s";
-                return false;
-            }
-
-            autoApplyAllowedAfterUtc ??= DateTime.UtcNow + PostAppearanceReadyWarmup;
-            if (DateTime.UtcNow < autoApplyAllowedAfterUtc.Value)
-            {
-                var remaining = autoApplyAllowedAfterUtc.Value - DateTime.UtcNow;
-                status = Localization.IsChine
-                    ? $"登录预热 {remaining.TotalSeconds:F1}s"
-                    : $"Login warmup {remaining.TotalSeconds:F1}s";
                 return false;
             }
 
@@ -1754,11 +1727,7 @@ namespace HeelsDesignLinker
             return false;
         }
 
-        /// <summary>
-        /// 会话工作门控：登录后延迟插件实际工作（规则评估、Glamourer GetState、自动 apply），
-        /// 避免在 Glamourer 完成本地投影前误匹配装备条件或干扰其 IPC。
-        /// </summary>
-        private bool IsSessionWorkAllowed(out string gateStatus)
+        private bool PassesSessionPreamble(out string gateStatus, TimeSpan minPostLoginDelay)
         {
             gateStatus = "";
 
@@ -1782,12 +1751,6 @@ namespace HeelsDesignLinker
                 return false;
             }
 
-            if (sessionWorkUnlocked)
-            {
-                gateStatus = Localization.IsChine ? "可自动应用" : "Ready to apply";
-                return true;
-            }
-
             var now = DateTime.UtcNow;
             localPlayerStableSinceUtc ??= now;
 
@@ -1804,9 +1767,9 @@ namespace HeelsDesignLinker
             if (loginSinceUtc.HasValue)
             {
                 var loginElapsed = now - loginSinceUtc.Value;
-                if (loginElapsed < MinPostLoginDelay)
+                if (loginElapsed < minPostLoginDelay)
                 {
-                    var remaining = MinPostLoginDelay - loginElapsed;
+                    var remaining = minPostLoginDelay - loginElapsed;
                     gateStatus = Localization.IsChine
                         ? $"登录预热 {remaining.TotalSeconds:F1}s"
                         : $"Login warmup {remaining.TotalSeconds:F1}s";
@@ -1814,34 +1777,46 @@ namespace HeelsDesignLinker
                 }
             }
 
-            if (!IsCharacterAppearanceReady(out var appearanceStatus))
-            {
-                gateStatus = appearanceStatus;
-                return false;
-            }
+            return true;
+        }
 
-            if (ConfigurationUsesEquipmentConditions() && isGlamourerAvailable)
-            {
-                if (!_glamourerInterop.IsEquipmentEvaluationAllowed(
-                        loginSinceUtc,
-                        GlamourerEquipmentSettleDelay,
-                        GlamourerEquipmentFallback,
-                        out var glamWait))
+        private bool PassesGlamourerEquipmentGate(out string gateStatus)
+        {
+            gateStatus = "";
+
+            if (!ConfigurationUsesEquipmentConditions() || !isGlamourerAvailable)
+                return true;
+
+            if (_glamourerInterop.IsEquipmentEvaluationAllowed(
+                    loginSinceUtc,
+                    GlamourerEquipmentSettleDelay,
+                    GlamourerEquipmentFallback,
+                    out var glamWait))
+                return true;
+
+            gateStatus = Localization.IsChine
+                ? glamWait
+                : glamWait switch
                 {
-                    gateStatus = Localization.IsChine
-                        ? glamWait
-                        : glamWait switch
-                        {
-                            var s when s.StartsWith("Glamourer 装备状态稳定中") =>
-                                s.Replace("Glamourer 装备状态稳定中", "Glamourer equipment stabilizing"),
-                            _ => "Waiting for Glamourer local projection",
-                        };
-                    return false;
-                }
-            }
+                    var s when s.StartsWith("Glamourer 装备状态稳定中") =>
+                        s.Replace("Glamourer 装备状态稳定中", "Glamourer equipment stabilizing"),
+                    _ => "Waiting for Glamourer local projection",
+                };
+            return false;
+        }
 
-            sessionWorkUnlocked = true;
-            gateStatus = Localization.IsChine ? "可自动应用" : "Ready to apply";
+        /// <summary>登录保护结束条件：外观/Glamourer 就绪。满足前不进行任何规则匹配与 apply。</summary>
+        private bool IsLoginSessionReadyToWork(out string gateStatus)
+        {
+            if (!PassesSessionPreamble(out gateStatus, MinPostLoginProtectionDelay))
+                return false;
+
+            if (!IsMainHandAnchorReady(LoginMainHandStableDelay, out gateStatus))
+                return false;
+
+            if (!PassesGlamourerEquipmentGate(out gateStatus))
+                return false;
+
             return true;
         }
 
@@ -1856,7 +1831,6 @@ namespace HeelsDesignLinker
                 applyGateStatus = Localization.IsChine ? "未登录" : "Not logged in";
                 loginSinceUtc = null;
                 isLoginProtectionActive = false;
-                sessionWorkUnlocked = false;
                 _glamourerInterop.ResetLoginProjectionTracking();
                 ResetApplyState();
                 lastIpcDataHash = "";
@@ -1868,6 +1842,9 @@ namespace HeelsDesignLinker
             {
                 loginSinceUtc = DateTime.UtcNow;
                 isLoginProtectionActive = true;
+                _glamourerInterop.ResetLoginProjectionTracking();
+                ResetApplyState();
+                drawDataInitialized = false;
             }
             
             // 检查 DrawData 是否变化（装备外观变化检测 - 用于 Glamourer）
@@ -1956,8 +1933,16 @@ namespace HeelsDesignLinker
                 ruleMatchStableSinceUtc = null;
             }
 
+            if (IsLoginProtectionActive())
+            {
+                if (IsLoginSessionReadyToWork(out applyGateStatus))
+                    EndLoginProtection();
+                else
+                    return;
+            }
+
             applyGateStatus = "";
-            if (!IsSessionWorkAllowed(out applyGateStatus))
+            if (!PassesSessionPreamble(out applyGateStatus, TimeSpan.Zero))
                 return;
 
             HeelsRule? matchedRule = null;
@@ -2004,6 +1989,7 @@ namespace HeelsDesignLinker
 
             var appliedAnything = false;
             var configDirty = false;
+            var ruleActions = GetRuleActions(matchedRule);
 
             // 应用基准行动（如果启用）
             if (Configuration.RuleSets.Count > 0 && 
@@ -2013,7 +1999,6 @@ namespace HeelsDesignLinker
                 var activeRuleSet = Configuration.RuleSets[Configuration.ActiveRuleSetIndex];
                 if (activeRuleSet.UseBaselineActions)
                 {
-                    // 更新基准配置（扫描新参数）
                     var newCount = UpdateBaselineConfigs(activeRuleSet);
                     if (newCount > 0)
                         PluginInterface.SavePluginConfig(Configuration);
@@ -2023,7 +2008,6 @@ namespace HeelsDesignLinker
                 }
             }
 
-            var ruleActions = GetRuleActions(matchedRule);
             if (ruleActions.Count == 0)
                 return;
 
@@ -2038,13 +2022,10 @@ namespace HeelsDesignLinker
                         if (ApplyPenumbraAction(action, ref appliedAnything))
                             configDirty = true;
                         break;
-                    // case ActionType.CustomizePlus:  // 已移除 Customize+ 支持
-                    //     ApplyCustomizePlusAction(action, localPlayer, ref appliedAnything);
-                    //     break;
                     case ActionType.Honorific:
                         if (!isHonorificIpcReady)
                             break;
-                        
+
                         if (!string.IsNullOrWhiteSpace(action.HonorificTitleJson)
                             && action.HonorificTitleJson != lastAppliedHonorificJson)
                         {
@@ -2064,7 +2045,7 @@ namespace HeelsDesignLinker
                     case ActionType.Moodles:
                         if (!isMoodlesIpcReady)
                             break;
-                        
+
                         if (!string.IsNullOrWhiteSpace(action.MoodleGuid)
                             && Guid.TryParse(action.MoodleGuid, out var moodleId) && moodleId != Guid.Empty)
                         {
@@ -2091,40 +2072,38 @@ namespace HeelsDesignLinker
             if (configDirty)
                 SaveConfig();
 
-            if (IsLoginProtectionActive())
-                EndLoginProtection();
-
             if (appliedAnything)
             {
                 lastApplyUtc = DateTime.UtcNow;
-                
-                // 记录执行信息用于UI显示
                 lastExecutedRuleIndex = currentMatchedRuleIndex;
                 lastExecutedActionUtc = DateTime.UtcNow;
-                
-                // 构建action摘要
-                lastExecutedActionSummaries.Clear();
-                foreach (var action in ruleActions)
+                RecordExecutedActionSummaries(ruleActions);
+            }
+        }
+
+        private void RecordExecutedActionSummaries(List<HeelsRuleAction> ruleActions)
+        {
+            lastExecutedActionSummaries.Clear();
+            foreach (var action in ruleActions)
+            {
+                switch (action.Type)
                 {
-                    switch (action.Type)
-                    {
-                        case ActionType.Glamourer:
-                            if (ActionUsesGlamourer(action))
-                                lastExecutedActionSummaries.Add($"Glamourer: {action.GlamourerDesign}");
-                            break;
-                        case ActionType.Penumbra:
-                            if (ActionUsesPenumbra(action))
-                                lastExecutedActionSummaries.Add($"Penumbra: {action.PenumbraModName}");
-                            break;
-                        case ActionType.Honorific:
-                            if (!string.IsNullOrWhiteSpace(action.HonorificTitleJson))
-                                lastExecutedActionSummaries.Add("Honorific");
-                            break;
-                        case ActionType.Moodles:
-                            if (!string.IsNullOrWhiteSpace(action.MoodleGuid))
-                                lastExecutedActionSummaries.Add("Moodles");
-                            break;
-                    }
+                    case ActionType.Glamourer:
+                        if (ActionUsesGlamourer(action))
+                            lastExecutedActionSummaries.Add($"Glamourer: {action.GlamourerDesign}");
+                        break;
+                    case ActionType.Penumbra:
+                        if (ActionUsesPenumbra(action))
+                            lastExecutedActionSummaries.Add($"Penumbra: {action.PenumbraModName}");
+                        break;
+                    case ActionType.Honorific:
+                        if (!string.IsNullOrWhiteSpace(action.HonorificTitleJson))
+                            lastExecutedActionSummaries.Add("Honorific");
+                        break;
+                    case ActionType.Moodles:
+                        if (!string.IsNullOrWhiteSpace(action.MoodleGuid))
+                            lastExecutedActionSummaries.Add("Moodles");
+                        break;
                 }
             }
         }
