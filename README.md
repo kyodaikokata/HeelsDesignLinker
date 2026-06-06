@@ -1,20 +1,22 @@
 # Heels Design Linker
 
-**Repository:** https://github.com/kyodaikokata/HeelsDesignLinker
+**Source repository:** https://github.com/kyodaikokata/HeelsDesignLinker
 
-Custom plugin repo URL (**国服 CN**):
+Install and updates are distributed through the unified **KKT-Catalog** custom plugin repository. Add **one** repo URL in Dalamud (Settings → Custom Plugin Repositories):
 
+| Launcher | URL |
+|----------|-----|
+| XIVLauncher 国服 (CN) | `https://raw.githubusercontent.com/kyodaikokata/KKT-Catalog/main/pluginmaster.cn.json` |
+| XIVLauncher 国际 (Global) | `https://raw.githubusercontent.com/kyodaikokata/KKT-Catalog/main/pluginmaster.global.json` |
+
+> If you previously added `HeelsDesignLinker/main/pluginmaster.*.json`, remove that entry to avoid duplicate listings.
+
+Release build (CN/Global → KKT-Catalog):
+
+```powershell
+.\scripts\publish-release.ps1
+# 仅国服: .\scripts\publish-release.ps1 -SkipGlobal
 ```
-https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/pluginmaster.cn.json
-```
-
-国际服 Global:
-
-```
-https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/pluginmaster.global.json
-```
-
-> `pluginmaster.json` 为旧版兼容入口，请勿在新安装中使用。
 
 ---
 
@@ -54,6 +56,12 @@ Default rules on first run: barefoot ≤ -0.01, shoes ≤ 0.03, else heels.
 ## 中文
 
 根据 **SimpleHeels** 高度自动应用 **Glamourer** 设计或 **Penumbra** mod 选项。每条规则还可选用 **Honorific** 称号与 **Moodles** 状态/预设。
+
+### 安装
+
+在 Dalamud → 设置 → 自定义插件库 中添加 **KKT-Catalog** 源（见上文表格）。本仓库仅存放源码与 Issue，**不再** 作为插件安装源。
+
+若曾添加过 `HeelsDesignLinker/main/pluginmaster.cn.json` 等旧地址，请删除，避免插件列表重复。
 
 ### 必需 / 推荐插件
 
