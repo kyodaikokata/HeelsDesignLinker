@@ -4,20 +4,37 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.2.1.0";
+        public const string CurrentVersion = "1.2.1.1";
 
         public static readonly ChangelogEntry[] Entries =
         [
             new(
+                "1.2.1.1",
+                "2026-06-07",
+                [
+                    "基准行动 UI 改用 Dalamud HelpMarker 显示说明",
+                    "基准行动：匹配规则已使用的参数跳过基准，避免妨碍规则 apply",
+                    "更新基准行动相关中英文说明文案",
+                ],
+                [
+                    "Baseline UI: use Dalamud HelpMarker for inline help tooltips",
+                    "Baseline: skip parameters handled by the matched rule to avoid blocking rule apply",
+                    "Update baseline-related localization strings (ZH/EN)",
+                ]),
+            new(
                 "1.2.1.0",
                 "2026-06-07",
                 [
-                    "登录保护预热缩短至 0.5s（启动延迟、主手锚点、Glamourer 稳定），加快首次进入游戏后的规则 apply",
+                    "登录保护预热缩短至 0.5s（启动延迟、主手锚点），加快首次进入游戏后的规则 apply",
+                    "移除登录期等待 Glamourer 本地投影事件的门控（装备条件 fail-closed 与背包交叉校验仍保留）",
+                    "基准行动：当匹配规则已使用同一参数时跳过基准，避免 Penumbra 关 Mod / Glamourer revert 等妨碍规则 apply",
                     "修复 Release 包 manifest 缺少 IconUrl，安装后 Dalamud 插件列表不显示图标",
                     "发布流程增加 zip manifest IconUrl 校验，并同步 images/icon.png 至 Release 仓库",
                 ],
                 [
-                    "Shorten login protection warmup to 0.5s (startup, main-hand anchor, Glamourer settle)",
+                    "Shorten login protection warmup to 0.5s (startup, main-hand anchor)",
+                    "Remove login Glamourer local-projection event gate (equipment fail-closed + inventory cross-check remain)",
+                    "Baseline: skip parameters the matched rule will apply, avoiding Penumbra mod-disable / Glamourer revert blocking rules",
                     "Fix missing IconUrl in Release manifest so installed plugin shows icon in Dalamud",
                     "Publish pipeline validates IconUrl in zip and syncs images/icon.png to Release repo",
                 ]),

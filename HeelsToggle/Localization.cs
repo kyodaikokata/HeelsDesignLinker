@@ -501,12 +501,12 @@ namespace HeelsDesignLinker
         // 基准行动系统
         public static string BaselineActions => IsChine ? "基准行动" : "Baseline Actions";
         public static string BaselineActionsDesc => IsChine 
-            ? "在规则匹配前管理各参数的默认状态（Penumbra / Glamourer / Moodles / Honorific）" 
-            : "Manage default parameter states before rule matching (Penumbra / Glamourer / Moodles / Honorific)";
+            ? "在应用规则行动前管理各参数的默认状态（Penumbra / Glamourer / Moodles / Honorific）；当前规则已操作的参数会跳过" 
+            : "Manage default parameter states before rule actions (Penumbra / Glamourer / Moodles / Honorific); skips parameters the matched rule handles";
         public static string BaselineActionsEnable => IsChine ? "启用基准行动系统" : "Enable Baseline Actions";
         public static string BaselineActionsEnableTooltip => IsChine 
-            ? "启用后，规则匹配前会先应用基准状态" 
-            : "When enabled, baseline states are applied before rule matching";
+            ? "启用后，在应用规则行动前先应用基准状态；当前匹配规则已操作的参数会跳过基准，仅对其余参数生效" 
+            : "When enabled, baseline states are applied before rule actions; parameters already handled by the matched rule are skipped";
         public static string BaselineNoParameters => IsChine 
             ? "（未检测到参数，创建规则后会自动扫描）" 
             : "(No parameters detected, will auto-scan after creating rules)";
@@ -533,8 +533,8 @@ namespace HeelsDesignLinker
             ? "忽略：不管理此参数，保持当前状态" 
             : "Ignore: Don't manage this parameter, keep current state";
         public static string BaselineManualStateTooltip => IsChine 
-            ? "手动模式：规则匹配前应用的状态" 
-            : "Manual mode: State applied before rule matching";
+            ? "手动模式：在应用规则行动前应用的启用/禁用状态" 
+            : "Manual mode: Enabled/disabled state applied before rule actions";
         public static string BaselineNewParameter => IsChine ? "[新]" : "[NEW]";
         public static string BaselineDismissAll => IsChine ? "忽略所有新参数" : "Dismiss All New";
         public static string BaselineDismissAllTooltip => IsChine 

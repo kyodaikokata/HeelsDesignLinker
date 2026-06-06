@@ -8,6 +8,7 @@ using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using Dalamud.Configuration;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.Components;
 using Dalamud.Utility;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -684,17 +685,12 @@ namespace HeelsDesignLinker
         private static readonly TimeSpan LoginProtectionMaxDuration = TimeSpan.FromSeconds(45);
         /// <summary>登录保护结束后，再延迟一段时间才允许基准行动（避免紧接 revert 把刚加载的投影剥掉）。</summary>
         private static readonly TimeSpan PostLoginBaselineDelay = TimeSpan.FromSeconds(5);
-        /// <summary>收到 Glamourer 本地投影信号后，再稳定一段时间才允许规则评估。</summary>
-        private static readonly TimeSpan GlamourerEquipmentSettleDelay = TimeSpan.FromSeconds(0.5);
-        /// <summary>若 Glamourer 始终未发出本地投影信号，超过此时间后允许装备条件评估（兜底）。</summary>
-        private static readonly TimeSpan GlamourerEquipmentFallback = TimeSpan.FromSeconds(25);
         /// <summary>登录后延迟多久才允许基准 Glamourer revert（与规则 Glamourer apply 无关）。</summary>
         private static readonly TimeSpan BaselineGlamourerRevertDelay = TimeSpan.FromSeconds(90);
         private DateTime? loginSinceUtc;
         private bool isLoginProtectionActive = true;
         private DateTime? localPlayerStableSinceUtc;
         private DateTime? appearancePopulatedSinceUtc;
-        private DateTime? lastLocalGlamourerFinalizeUtc;
         private uint lastTrackedMainHandItemId;
         private bool mainHandAnchorInitialized;
         private DateTime? baselineActionsAllowedAfterUtc;
@@ -893,7 +889,6 @@ namespace HeelsDesignLinker
             
             // 订阅 Glamourer 状态变化事件（主要检测方式）
             _glamourerInterop.OnStateChanged += OnGlamourerStateChanged;
-            _glamourerInterop.OnStateFinalized += OnGlamourerStateFinalized;
 
             if (Configuration.Version < ConfigSchemaVersion)
             {
@@ -1370,7 +1365,6 @@ namespace HeelsDesignLinker
         {
             loginSinceUtc = DateTime.UtcNow;
             isLoginProtectionActive = true;
-            _glamourerInterop.ResetLoginProjectionTracking();
             ResetApplyState();
             drawDataInitialized = false;
         }
@@ -1417,15 +1411,6 @@ namespace HeelsDesignLinker
             return DateTime.UtcNow - loginSinceUtc.Value >= BaselineGlamourerRevertDelay;
         }
 
-        private void OnGlamourerStateFinalized(nint actorAddress)
-        {
-            var localPlayer = ObjectTable.LocalPlayer;
-            if (localPlayer == null || !localPlayer.IsValid() || localPlayer.Address != actorAddress)
-                return;
-
-            lastLocalGlamourerFinalizeUtc = DateTime.UtcNow;
-        }
-
         private bool IsPlayerInWorld()
         {
             if (Condition[ConditionFlag.BetweenAreas] || Condition[ConditionFlag.BetweenAreas51])
@@ -1436,7 +1421,6 @@ namespace HeelsDesignLinker
 
         private void OnLogout(int type, int code)
         {
-            _glamourerInterop.ResetLoginProjectionTracking();
             ResetApplyState();
             drawDataInitialized = false;
         }
@@ -1530,7 +1514,6 @@ namespace HeelsDesignLinker
         {
             localPlayerStableSinceUtc = null;
             appearancePopulatedSinceUtc = null;
-            lastLocalGlamourerFinalizeUtc = null;
             baselineActionsAllowedAfterUtc = null;
             lastApplyUtc = DateTime.MinValue;
             lastAppliedActionKeys.Clear();
@@ -1710,23 +1693,6 @@ namespace HeelsDesignLinker
             return true;
         }
 
-        private bool ConfigurationUsesEquipmentConditions()
-        {
-            foreach (var rule in ActiveRules)
-            {
-                if (!rule.IsActive || rule.ConditionGroups == null)
-                    continue;
-
-                foreach (var group in rule.ConditionGroups)
-                {
-                    if (group.Conditions.Any(c => c is EquipmentCondition))
-                        return true;
-                }
-            }
-
-            return false;
-        }
-
         private bool PassesSessionPreamble(out string gateStatus, TimeSpan minPostLoginDelay)
         {
             gateStatus = "";
@@ -1780,41 +1746,13 @@ namespace HeelsDesignLinker
             return true;
         }
 
-        private bool PassesGlamourerEquipmentGate(out string gateStatus)
-        {
-            gateStatus = "";
-
-            if (!ConfigurationUsesEquipmentConditions() || !isGlamourerAvailable)
-                return true;
-
-            if (_glamourerInterop.IsEquipmentEvaluationAllowed(
-                    loginSinceUtc,
-                    GlamourerEquipmentSettleDelay,
-                    GlamourerEquipmentFallback,
-                    out var glamWait))
-                return true;
-
-            gateStatus = Localization.IsChine
-                ? glamWait
-                : glamWait switch
-                {
-                    var s when s.StartsWith("Glamourer 装备状态稳定中") =>
-                        s.Replace("Glamourer 装备状态稳定中", "Glamourer equipment stabilizing"),
-                    _ => "Waiting for Glamourer local projection",
-                };
-            return false;
-        }
-
-        /// <summary>登录保护结束条件：外观/Glamourer 就绪。满足前不进行任何规则匹配与 apply。</summary>
+        /// <summary>登录保护结束条件：会话与主手锚点就绪。满足前不进行任何规则匹配与 apply。</summary>
         private bool IsLoginSessionReadyToWork(out string gateStatus)
         {
             if (!PassesSessionPreamble(out gateStatus, MinPostLoginProtectionDelay))
                 return false;
 
             if (!IsMainHandAnchorReady(LoginMainHandStableDelay, out gateStatus))
-                return false;
-
-            if (!PassesGlamourerEquipmentGate(out gateStatus))
                 return false;
 
             return true;
@@ -1831,7 +1769,6 @@ namespace HeelsDesignLinker
                 applyGateStatus = Localization.IsChine ? "未登录" : "Not logged in";
                 loginSinceUtc = null;
                 isLoginProtectionActive = false;
-                _glamourerInterop.ResetLoginProjectionTracking();
                 ResetApplyState();
                 lastIpcDataHash = "";
                 drawDataInitialized = false; // 登出时重置
@@ -1842,7 +1779,6 @@ namespace HeelsDesignLinker
             {
                 loginSinceUtc = DateTime.UtcNow;
                 isLoginProtectionActive = true;
-                _glamourerInterop.ResetLoginProjectionTracking();
                 ResetApplyState();
                 drawDataInitialized = false;
             }
@@ -2004,7 +1940,7 @@ namespace HeelsDesignLinker
                         PluginInterface.SavePluginConfig(Configuration);
 
                     if (IsBaselineApplyAllowed())
-                        ApplyBaselineActions(activeRuleSet, ref appliedAnything);
+                        ApplyBaselineActions(activeRuleSet, matchedRule, ref appliedAnything);
                 }
             }
 
@@ -2573,10 +2509,49 @@ namespace HeelsDesignLinker
             }
         }
 
+        /// <summary>当前匹配规则是否已使用该基准参数（是则跳过基准，避免覆盖即将执行的规则行动）。</summary>
+        private bool MatchedRuleUsesBaselineParameter(HeelsRule rule, BaselineParameterId param)
+        {
+            foreach (var action in GetRuleActions(rule))
+            {
+                if (BaselineActionTargetsParameter(action, param))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool BaselineActionTargetsParameter(HeelsRuleAction action, BaselineParameterId param)
+        {
+            switch (param.Type)
+            {
+                case ActionType.Penumbra:
+                    return action.Type == ActionType.Penumbra
+                           && !string.IsNullOrWhiteSpace(action.PenumbraModName)
+                           && string.Equals(action.PenumbraModName, param.PenumbraModName, StringComparison.OrdinalIgnoreCase)
+                           && string.Equals(action.PenumbraCollection ?? "Default", param.PenumbraCollection ?? "Default",
+                               StringComparison.OrdinalIgnoreCase);
+                case ActionType.Glamourer:
+                    return action.Type == ActionType.Glamourer
+                           && !string.IsNullOrWhiteSpace(action.GlamourerDesign)
+                           && string.Equals(action.GlamourerDesign, param.GlamourerDesign, StringComparison.OrdinalIgnoreCase);
+                case ActionType.Moodles:
+                    return action.Type == ActionType.Moodles
+                           && !string.IsNullOrWhiteSpace(action.MoodleGuid)
+                           && string.Equals(action.MoodleGuid, param.MoodleGuid, StringComparison.OrdinalIgnoreCase);
+                case ActionType.Honorific:
+                    return action.Type == ActionType.Honorific
+                           && !string.IsNullOrWhiteSpace(action.HonorificTitleJson)
+                           && string.Equals(action.HonorificTitleJson, param.HonorificTitleJson, StringComparison.OrdinalIgnoreCase);
+                default:
+                    return false;
+            }
+        }
+
         /// <summary>
-        /// 应用基准行动（在匹配规则前调用）
+        /// 应用基准行动（在匹配规则的 Actions 之前调用；与规则共用参数时跳过以免妨碍规则 apply）。
         /// </summary>
-        private void ApplyBaselineActions(RuleSet ruleSet, ref bool appliedAnything)
+        private void ApplyBaselineActions(RuleSet ruleSet, HeelsRule matchedRule, ref bool appliedAnything)
         {
             if (!ruleSet.UseBaselineActions || !IsBaselineApplyAllowed())
                 return;
@@ -2588,6 +2563,9 @@ namespace HeelsDesignLinker
                     continue;
 
                 if (config.Mode == BaselineMode.Ignore)
+                    continue;
+
+                if (MatchedRuleUsesBaselineParameter(matchedRule, config.ParameterId))
                     continue;
                 
                 var param = config.ParameterId;
@@ -3357,8 +3335,7 @@ namespace HeelsDesignLinker
                 ruleSet.IsBaselineSectionExpanded = !ruleSet.IsBaselineSectionExpanded;
                 SaveConfig();
             }
-            if (ImGui.IsItemHovered())
-                ImGui.SetTooltip(Localization.BaselineActionsDesc);
+            ImGuiComponents.HelpMarker(Localization.BaselineActionsDesc);
             
             if (!headerOpen)
                 return;
@@ -3372,8 +3349,7 @@ namespace HeelsDesignLinker
                 ruleSet.UseBaselineActions = useBaselineActions;
                 SaveConfig();
             }
-            if (ImGui.IsItemHovered())
-                ImGui.SetTooltip(Localization.BaselineActionsEnableTooltip);
+            ImGuiComponents.HelpMarker(Localization.BaselineActionsEnableTooltip);
             
             if (!ruleSet.UseBaselineActions)
             {
@@ -3389,8 +3365,7 @@ namespace HeelsDesignLinker
                 UpdateBaselineConfigs(ruleSet);
                 SaveConfig();
             }
-            if (ImGui.IsItemHovered())
-                ImGui.SetTooltip(Localization.BaselineRefreshTooltip);
+            ImGuiComponents.HelpMarker(Localization.BaselineRefreshTooltip);
             
             ImGui.SameLine();
             
@@ -3415,8 +3390,7 @@ namespace HeelsDesignLinker
                 }
                 SaveConfig();
             }
-            if (ImGui.IsItemHovered())
-                ImGui.SetTooltip(Localization.BaselineDismissAllTooltip);
+            ImGuiComponents.HelpMarker(Localization.BaselineDismissAllTooltip);
             
             if (hasNewParams)
                 ImGui.PopStyleColor(3);
@@ -3501,28 +3475,18 @@ namespace HeelsDesignLinker
             var paramKey = param.GetKey();
             var startPos = ImGui.GetCursorScreenPos();
             
+            var (displayName, fullInfo) = GetBaselineParameterDisplayInfo(param);
+            ImGui.AlignTextToFramePadding();
             if (config.IsNew)
                 ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1.0f, 0.8f, 0.0f, 1.0f));
-            
-            var (displayName, fullInfo) = GetBaselineParameterDisplayInfo(param);
             if (config.IsNew)
-            {
-                ImGui.TextWrapped($"{Localization.BaselineNewParameter} {displayName}");
-                ImGui.PopStyleColor();
-            }
+                ImGui.Text($"{Localization.BaselineNewParameter} {displayName}");
             else
-            {
-                ImGui.TextWrapped(displayName);
-            }
-            
-            if (ImGui.IsItemHovered() && !string.IsNullOrEmpty(fullInfo))
-            {
-                ImGui.BeginTooltip();
-                ImGui.PushTextWrapPos(400);
-                ImGui.TextUnformatted(fullInfo);
-                ImGui.PopTextWrapPos();
-                ImGui.EndTooltip();
-            }
+                ImGui.Text(displayName);
+            if (config.IsNew)
+                ImGui.PopStyleColor();
+            if (!string.IsNullOrEmpty(fullInfo))
+                ImGuiComponents.HelpMarker(fullInfo);
             
             ImGui.AlignTextToFramePadding();
             ImGui.Text(Localization.BaselineMode + ":");
@@ -3548,18 +3512,15 @@ namespace HeelsDesignLinker
                 SaveConfig();
             }
             
-            if (ImGui.IsItemHovered())
+            var modeTooltip = config.Mode switch
             {
-                var tooltip = config.Mode switch
-                {
-                    BaselineMode.Auto => Localization.BaselineModeAutoTooltip,
-                    BaselineMode.Manual => Localization.BaselineModeManualTooltip,
-                    BaselineMode.Ignore => Localization.BaselineModeIgnoreTooltip,
-                    _ => ""
-                };
-                if (!string.IsNullOrEmpty(tooltip))
-                    ImGui.SetTooltip(tooltip);
-            }
+                BaselineMode.Auto => Localization.BaselineModeAutoTooltip,
+                BaselineMode.Manual => Localization.BaselineModeManualTooltip,
+                BaselineMode.Ignore => Localization.BaselineModeIgnoreTooltip,
+                _ => ""
+            };
+            if (!string.IsNullOrEmpty(modeTooltip))
+                ImGuiComponents.HelpMarker(modeTooltip);
             
             if (config.Mode == BaselineMode.Manual)
             {
@@ -3641,8 +3602,7 @@ namespace HeelsDesignLinker
                 config.ManualState = BaselineManualState.Enabled;
                 SaveConfig();
             }
-            if (ImGui.IsItemHovered())
-                ImGui.SetTooltip(Localization.BaselineManualStateTooltip);
+            ImGuiComponents.HelpMarker(Localization.BaselineManualStateTooltip);
         }
 
         private void DrawBaselinePenumbraManualSettings(BaselineActionConfig config, RuleSet ruleSet, string paramKey)
@@ -3660,8 +3620,7 @@ namespace HeelsDesignLinker
                 SyncBaselinePenumbraManualOptionsFromRules(ruleSet, config);
                 SaveConfig();
             }
-            if (ImGui.IsItemHovered())
-                ImGui.SetTooltip(Localization.BaselineSyncFromRulesTooltip);
+            ImGuiComponents.HelpMarker(Localization.BaselineSyncFromRulesTooltip);
             
             if (config.ManualPenumbraOptions.Count == 0)
             {
