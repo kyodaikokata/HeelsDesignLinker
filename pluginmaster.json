@@ -22,9 +22,9 @@
       "other"
     ],
     "DalamudApiLevel": 15,
-    "AssemblyVersion": "1.2.0.0",
-    "Changelog": "1.2.0: RuleSets, Baseline Actions (auto/manual/ignore), unreachable-rule yellow warnings, legacy Rules sync fix, orphaned baseline configs preserved.",
-    "LastUpdate": "1780744671",
+    "AssemblyVersion": "1.2.0.1",
+    "Changelog": "1.2.0.1: Reduced unnecessary xllog output; IPC/apply failures still logged for troubleshooting.",
+    "LastUpdate": "1780831071",
     "RepoUrl": "https://github.com/kyodaikokata/HeelsDesignLinker",
     "DownloadLinkInstall": "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsToggle/latest.zip",
     "DownloadLinkUpdate": "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsToggle/latest.zip",

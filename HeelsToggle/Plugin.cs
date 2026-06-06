@@ -725,7 +725,6 @@ namespace HeelsDesignLinker
                 {
                     // 复制旧配置到新位置
                     File.Copy(oldConfigPath, newConfigPath, overwrite: false);
-                    PluginLog.Information("[HeelsDesignLinker] Configuration migrated from HeelsToggle.");
                     
                     // 备份旧配置（而不是删除）
                     var backupPath = oldConfigPath + ".migrated_backup";
@@ -764,8 +763,6 @@ namespace HeelsDesignLinker
                 defaultRuleSet.Rules = Configuration.Rules;
                 Configuration.RuleSets.Add(defaultRuleSet);
                 Configuration.ActiveRuleSetIndex = 0;
-                
-                PluginLog.Information($"Migrated {Configuration.Rules.Count} rules to RuleSet system with SimpleHeels config");
                 
                 // 清空旧列表（但保留以支持降级）
                 // Configuration.Rules = new List<HeelsRule>();
@@ -835,10 +832,7 @@ namespace HeelsDesignLinker
             }
 
             if (recovered > 0)
-            {
-                PluginLog.Information($"[HeelsDesignLinker] Recovered {recovered} action(s) from legacy Rules into active RuleSet.");
                 SaveConfig();
-            }
         }
 
         public Plugin()
@@ -1459,7 +1453,6 @@ namespace HeelsDesignLinker
             // 这样等稳定性延迟过后，action会重新执行
             if (stableTrackingRuleIndex >= 0)  // 如果之前有匹配的规则
             {
-                PluginLog.Warning($"[RuleChange] {stableTrackingRuleIndex} → {matchedRuleIndex}, clearing keys (had {lastAppliedActionKeys.Count} keys)");
                 lastAppliedActionKeys.Clear();
                 lastAppliedHonorificJson = "";
                 lastAppliedMoodleKey = "";
@@ -1736,11 +1729,7 @@ namespace HeelsDesignLinker
                     // 更新基准配置（扫描新参数）
                     var newCount = UpdateBaselineConfigs(activeRuleSet);
                     if (newCount > 0)
-                    {
-                        // 发现了新参数，保存配置
-                        PluginLog.Info($"Discovered {newCount} new baseline parameters");
                         PluginInterface.SavePluginConfig(Configuration);
-                    }
                     
                     // 应用基准行动
                     ApplyBaselineActions(activeRuleSet, ref appliedAnything);
@@ -1749,10 +1738,7 @@ namespace HeelsDesignLinker
 
             var ruleActions = GetRuleActions(matchedRule);
             if (ruleActions.Count == 0)
-            {
-                PluginLog.Warning($"Matched rule #{currentMatchedRuleIndex + 1} has no actions");
                 return;
-            }
 
             foreach (var action in ruleActions)
             {
@@ -1770,10 +1756,7 @@ namespace HeelsDesignLinker
                     //     break;
                     case ActionType.Honorific:
                         if (!isHonorificIpcReady)
-                        {
-                            PluginLog.Warning($"Honorific action skipped: Honorific IPC not ready");
                             break;
-                        }
                         
                         if (!string.IsNullOrWhiteSpace(action.HonorificTitleJson)
                             && action.HonorificTitleJson != lastAppliedHonorificJson)
@@ -1793,10 +1776,7 @@ namespace HeelsDesignLinker
                         break;
                     case ActionType.Moodles:
                         if (!isMoodlesIpcReady)
-                        {
-                            PluginLog.Warning($"Moodles action skipped: Moodles IPC not ready");
                             break;
-                        }
                         
                         if (!string.IsNullOrWhiteSpace(action.MoodleGuid)
                             && Guid.TryParse(action.MoodleGuid, out var moodleId) && moodleId != Guid.Empty)
@@ -1861,30 +1841,16 @@ namespace HeelsDesignLinker
 
         private void ApplyGlamourerAction(HeelsRuleAction action, ref bool appliedAnything)
         {
-            if (!isGlamourerAvailable)
-            {
-                PluginLog.Warning($"Glamourer action skipped: Glamourer not available");
+            if (!isGlamourerAvailable || !ActionUsesGlamourer(action))
                 return;
-            }
-            
-            if (!ActionUsesGlamourer(action))
-            {
-                if (action.Type == ActionType.Glamourer)
-                    PluginLog.Warning($"Glamourer action skipped: GlamourerDesign is empty");
-                return;
-            }
 
             var applyKey = BuildGlamourerActionKey(action);
             if (lastAppliedActionKeys.Contains(applyKey))
-            {
-                PluginLog.Warning($"[Skip] Already applied: {applyKey}");
                 return;
-            }
 
             try
             {
                 var designArg = FormatGlamourerDesignArgument(action.GlamourerDesign);
-                PluginLog.Warning($"[Apply] Executing Glamourer: {applyKey}");
                 CommandManager.ProcessCommand($"/glamour apply {designArg} | <me>");
                 lastAppliedActionKeys.Add(applyKey);
                 appliedAnything = true;
@@ -1897,25 +1863,8 @@ namespace HeelsDesignLinker
 
         private bool ApplyPenumbraAction(HeelsRuleAction action, ref bool appliedAnything)
         {
-            if (!isPenumbraIpcReady)
-            {
-                PluginLog.Warning($"Penumbra action skipped: Penumbra IPC not ready");
+            if (!isPenumbraIpcReady || !ActionUsesPenumbra(action))
                 return false;
-            }
-            
-            // 调试：记录每个 Penumbra action 的尝试
-            PluginLog.Info($"[Action] Processing Penumbra Action: Kind={action.PenumbraActionKind}, Mod={action.PenumbraModName}, Option={action.PenumbraOption}");
-            
-            if (!ActionUsesPenumbra(action))
-            {
-                if (action.Type == ActionType.Penumbra)
-                {
-                    PluginLog.Warning($"Penumbra action skipped (incomplete): Collection='{action.PenumbraCollection}', " +
-                        $"ModName='{action.PenumbraModName}', Kind={action.PenumbraActionKind}, Option='{action.PenumbraOption}', " +
-                        $"OptionName='{action.PenumbraOptionName}'");
-                }
-                return false;
-            }
 
             var configDirty = false;
 
@@ -1928,8 +1877,6 @@ namespace HeelsDesignLinker
                 
                 if (!lastAppliedActionKeys.Contains(applyKey))
                 {
-                    PluginLog.Info($"[Action] Attempting Penumbra SetMod: [{action.PenumbraCollection}] {action.PenumbraModName} → {(enabled ? "Enable" : "Disable")}");
-                    
                     if (_penumbraInterop.TrySetModEnabled(
                             action.PenumbraCollection,
                             action.PenumbraModName,
@@ -1941,7 +1888,6 @@ namespace HeelsDesignLinker
                         {
                             lastAppliedActionKeys.Add(applyKey);
                             appliedAnything = true;
-                            PluginLog.Info($"[Action] Applied Penumbra SetMod [{action.PenumbraCollection}] {action.PenumbraModName} → {(enabled ? "Enabled" : "Disabled")} (Result: {setModEc})");
                         }
                         else
                         {
@@ -1954,10 +1900,6 @@ namespace HeelsDesignLinker
                         lastError = setModError;
                         PluginLog.Warning($"[Action] Penumbra SetMod IPC failed: {setModError}");
                     }
-                }
-                else
-                {
-                    PluginLog.Info($"[Action] Skipped Penumbra SetMod (already applied): {applyKey}");
                 }
                 
                 return configDirty;
@@ -1997,8 +1939,6 @@ namespace HeelsDesignLinker
                     {
                         lastAppliedActionKeys.Add(applyKey);
                         appliedAnything = true;
-                        PluginLog.Info(
-                            $"Applied Penumbra MultiToggle [{action.PenumbraCollection}] {action.PenumbraModName} → {action.PenumbraOption} = [{string.Join(", ", enabledNames)}]");
                     }
                     else
                     {
@@ -2025,11 +1965,6 @@ namespace HeelsDesignLinker
                     {
                         lastAppliedActionKeys.Add(applyKey);
                         appliedAnything = true;
-                        if (singleEc == PenumbraIpcEc.Success)
-                        {
-                            PluginLog.Info(
-                                $"Applied Penumbra [{action.PenumbraCollection}] {action.PenumbraModName} → {action.PenumbraOption} = {action.PenumbraOptionName} ({action.PenumbraOptionEnabled})");
-                        }
                     }
                     else if (penumbraEc)
                     {
@@ -2442,7 +2377,6 @@ namespace HeelsDesignLinker
                 {
                     lastAppliedActionKeys.Add(applyKey);
                     appliedAnything = true;
-                    PluginLog.Info($"Applied Baseline Penumbra: [{param.PenumbraCollection}] {param.PenumbraModName} → {(enabled ? "Enabled" : "Disabled")} (Result: {result})");
                 }
                 else
                 {
@@ -2491,7 +2425,6 @@ namespace HeelsDesignLinker
                 {
                     lastAppliedActionKeys.Add(applyKey);
                     appliedAnything = true;
-                    PluginLog.Info($"Applied Baseline Penumbra MultiToggle [{collection}] {modName} → {optionSetting.PenumbraOption} = [{string.Join(", ", enabledNames)}]");
                 }
                 else if (!string.IsNullOrEmpty(error))
                 {
@@ -2517,7 +2450,6 @@ namespace HeelsDesignLinker
                 {
                     lastAppliedActionKeys.Add(applyKey);
                     appliedAnything = true;
-                    PluginLog.Info($"Applied Baseline Penumbra [{collection}] {modName} → {optionSetting.PenumbraOption} = {optionSetting.PenumbraOptionName} ({optionSetting.PenumbraOptionEnabled})");
                 }
                 else if (!string.IsNullOrEmpty(error))
                 {
@@ -2608,7 +2540,6 @@ namespace HeelsDesignLinker
                     CommandManager.ProcessCommand("/glamour revert <me>");
                     lastAppliedActionKeys.Add(applyKey);
                     appliedAnything = true;
-                    PluginLog.Info("Applied Baseline Glamourer: Revert");
                 }
                 catch (Exception ex)
                 {
@@ -2655,7 +2586,6 @@ namespace HeelsDesignLinker
             {
                 lastAppliedActionKeys.Add(applyKey);
                 appliedAnything = true;
-                PluginLog.Info($"Applied Baseline Moodles: {param.MoodleGuid}");
             }
             else
             {
@@ -2683,7 +2613,6 @@ namespace HeelsDesignLinker
                 {
                     lastAppliedActionKeys.Add(applyKey);
                     appliedAnything = true;
-                    PluginLog.Info("Applied Baseline Honorific: Clear");
                 }
                 return;
             }
@@ -2701,7 +2630,6 @@ namespace HeelsDesignLinker
             {
                 lastAppliedActionKeys.Add(titleKey);
                 appliedAnything = true;
-                PluginLog.Info("Applied Baseline Honorific: Set title");
             }
             else
             {
@@ -2757,8 +2685,6 @@ namespace HeelsDesignLinker
                     actualHeight = defaultHeight;
                 }
 
-                PluginLog.Debug(
-                    $"Parsed SimpleHeels heights: default={defaultHeight}, actual={actualHeight}, temp={hasTempOffset}");
                 return true;
             }
             catch (Exception ex)
@@ -3168,8 +3094,7 @@ namespace HeelsDesignLinker
             // 按钮：刷新扫描、忽略所有新参数
             if (ImGui.Button(Localization.BaselineRefresh))
             {
-                var newCount = UpdateBaselineConfigs(ruleSet);
-                PluginLog.Info($"Baseline scan: found {newCount} new parameters");
+                UpdateBaselineConfigs(ruleSet);
                 SaveConfig();
             }
             if (ImGui.IsItemHovered())
@@ -4827,19 +4752,8 @@ namespace HeelsDesignLinker
         {
             deleted = false;
             
-            // 详细调试日志 - 无条件输出
-            
-            // 检查是否是包含脚部装备的 Glamourer action
             var hasFeet = action.Type == ActionType.Glamourer && DoesGlamourerDesignHaveFeet(action.GlamourerDesign);
             var hasPenumbraConflict = penumbraConflictHints.TryGetValue(actionIndex, out var penumbraConflictHint);
-            
-            // 如果是 Glamourer action，输出详细信息
-            if (action.Type == ActionType.Glamourer)
-            {
-            }
-            else
-            {
-            }
             
             // 记录起始位置（用于绘制背景）
             var actionStartPos = ImGui.GetCursorScreenPos();
@@ -6204,7 +6118,6 @@ namespace HeelsDesignLinker
                                         File.Move(oldConfigPath, backupPath);
                                     else
                                         File.Delete(oldConfigPath);
-                                    PluginLog.Information("[HeelsDesignLinker] Manual migration successful.");
                                 }
                                 catch (Exception migrateEx)
                                 {

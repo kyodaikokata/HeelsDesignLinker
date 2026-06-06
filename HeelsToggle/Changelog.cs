@@ -4,10 +4,21 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.2.0";
+        public const string CurrentVersion = "1.2.0.1";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.2.0.1",
+                "2026-06-06",
+                [
+                    "移除不必要的 xllog 调试输出，正常运行时日志更安静",
+                    "保留 IPC 失败、配置迁移错误等有助于排错的 Warning / Error 日志",
+                ],
+                [
+                    "Removed unnecessary xllog debug output for quieter normal operation",
+                    "Kept Warning / Error logs for IPC failures, migration errors, and other troubleshooting",
+                ]),
             new(
                 "1.2.0",
                 "2026-06-06",
