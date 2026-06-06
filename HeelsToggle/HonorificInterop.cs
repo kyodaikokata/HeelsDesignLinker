@@ -3,7 +3,7 @@ using Dalamud.Plugin;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace HeelsToggle;
+namespace HeelsDesignLinker;
 
 internal sealed class HonorificTitleOption
 {

@@ -2,7 +2,7 @@ using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Plugin;
 using Newtonsoft.Json.Linq;
 
-namespace HeelsToggle;
+namespace HeelsDesignLinker;
 
 internal sealed class MoodleListItem
 {

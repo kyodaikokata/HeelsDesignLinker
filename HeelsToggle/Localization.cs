@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace HeelsToggle
+namespace HeelsDesignLinker
 {
     public enum UiLanguagePreference
     {
@@ -63,19 +63,141 @@ namespace HeelsToggle
         public static string SimpleHeelsHeightSource => IsChine ? "SimpleHeels 高度" : "SimpleHeels Height";
         public static string SimpleHeelsHeightDefault => IsChine ? "默认高度" : "Default";
         public static string SimpleHeelsHeightActual => IsChine ? "实际高度" : "Actual";
+        public static string SimpleHeelsHeightManual => IsChine ? "手动" : "Manual";
         public static string SimpleHeelsHeightDefaultTooltip => IsChine
             ? "使用 SimpleHeels IPC 的 DefaultOffset 匹配规则"
             : "Match rules using SimpleHeels IPC DefaultOffset";
         public static string SimpleHeelsHeightActualTooltip => IsChine
             ? "使用受 TempOffset 影响的实际高度；无临时偏移时与默认高度相同"
             : "Match rules using actual height affected by TempOffset; equals default when no temp offset";
+        public static string SimpleHeelsHeightManualTooltip => IsChine
+            ? "手动输入高度值，不依赖 SimpleHeels（用于测试或 SimpleHeels 不可用时）"
+            : "Manually input height value, independent of SimpleHeels (for testing or when SimpleHeels is unavailable)";
+        public static string ManualHeightValue => IsChine ? "手动高度" : "Manual Height";
+        public static string ManualHeightTooltip => IsChine
+            ? "拖拽滑块或直接输入数值设置当前高度，规则会根据此值匹配"
+            : "Drag slider or input value to set current height; rules will match based on this value";
+        public static string ResetToZero => IsChine ? "重置为 0" : "Reset to 0";
+        public static string ManualModeHint => IsChine
+            ? "手动模式：可用于测试规则或在 SimpleHeels 不可用时使用。拖动滑块查看不同高度下的规则匹配。"
+            : "Manual mode: useful for testing rules or when SimpleHeels is unavailable. Drag the slider to see rule matching at different heights.";
+        public static string SimpleHeelsNotAvailableHint => IsChine
+            ? "SimpleHeels 不可用，已自动切换到手动模式。你可以通过滑块设置高度来测试规则。"
+            : "SimpleHeels is unavailable; automatically switched to manual mode. Use the slider to set height for testing rules.";
+        public static string DoubleClickToInput => IsChine ? "双击或Ctrl+点击以手动输入数值" : "Double-click or Ctrl+click to input value manually";
+        
+        // 条件系统
+        public static string ConditionMode => IsChine ? "条件模式" : "Condition Mode";
+        public static string ConditionModeNone => IsChine ? "无条件（Else）" : "None (Else)";
+        public static string ConditionModeAnd => IsChine ? "全部满足（AND）" : "All conditions (AND)";
+        public static string ConditionModeOr => IsChine ? "任一满足（OR）" : "Any condition (OR)";
+        public static string Conditions => IsChine ? "条件列表" : "Conditions";
+        public static string AddCondition => IsChine ? "添加条件" : "Add Condition";
+        public static string RemoveCondition => IsChine ? "删除条件" : "Remove Condition";
+        public static string ConditionTypeHeight => IsChine ? "高度条件" : "Height Condition";
+        public static string ConditionTypeEquipment => IsChine ? "装备条件" : "Equipment Condition";
+        public static string SelectConditionType => IsChine ? "选择条件类型..." : "Select condition type...";
+        public static string HeightConditionLabel => IsChine ? "高度" : "Height";
+        public static string EquipmentSlot => IsChine ? "装备槽位" : "Equipment Slot";
+        public static string MustBeEquipped => IsChine ? "必须装备" : "Must be equipped";
+        public static string MustNotBeEquipped => IsChine ? "必须未装备" : "Must not be equipped";
+        public static string ConditionHint => IsChine 
+            ? "选择 None 表示无条件（Else分支），选择 AND/OR 后添加条件" 
+            : "Select None for unconditional (Else), or AND/OR to add conditions";
+        public static string AddConditionGroup => IsChine ? "添加条件组" : "Add Condition Group";
+        public static string AddConditionGroupTooltip => IsChine
+            ? "添加新的条件组，支持更复杂的逻辑（例如 (A || B) && C）"
+            : "Add a new condition group for complex logic (e.g., (A || B) && C)";
+        public static string DeleteConditionGroup => IsChine ? "删除此条件组" : "Delete this condition group";
+        public static string ConfirmDeleteConditionGroup => IsChine ? "确认删除此条件组？" : "Delete this condition group?";
+        public static string ConditionGroupLabel(int index) => IsChine ? $"条件组 #{index + 1}" : $"Group #{index + 1}";
+        public static string ConnectToNextGroup => IsChine
+            ? "选择如何连接到下一个条件组"
+            : "Choose how to connect to the next condition group";
+        
+        // 装备槽位名称
+        public static string EquipSlotName(EquipSlot slot) => slot switch
+        {
+            EquipSlot.MainHand => IsChine ? "主手" : "Main Hand",
+            EquipSlot.OffHand => IsChine ? "副手" : "Off Hand",
+            EquipSlot.Head => IsChine ? "头部" : "Head",
+            EquipSlot.Body => IsChine ? "上衣" : "Body",
+            EquipSlot.Hands => IsChine ? "手部" : "Hands",
+            EquipSlot.Legs => IsChine ? "裤子" : "Legs",
+            EquipSlot.Feet => IsChine ? "鞋子" : "Feet",
+            EquipSlot.Ears => IsChine ? "耳饰" : "Ears",
+            EquipSlot.Neck => IsChine ? "项链" : "Neck",
+            EquipSlot.Wrists => IsChine ? "手镯" : "Wrists",
+            EquipSlot.RFinger => IsChine ? "右戒指" : "Right Ring",
+            EquipSlot.LFinger => IsChine ? "左戒指" : "Left Ring",
+            _ => slot.ToString()
+        };
+        
         public static string SimpleHeelsTempActiveSuffix => IsChine ? "，含临时偏移" : ", temp active";
         public static string Mode => IsChine ? "模式" : "Mode";
         public static string GlamourerMode => IsChine ? "Glamourer 模式" : "Glamourer Mode";
         public static string PenumbraMode => IsChine ? "Penumbra 模式" : "Penumbra Mode";
+        public static string ActionTypeText => IsChine ? "行动类型" : "Action Type";
+        public static string ActionTypeLabel(ActionType actionType) => actionType switch
+        {
+            HeelsDesignLinker.ActionType.Glamourer => IsChine ? "Glamourer 设计" : "Glamourer Design",
+            HeelsDesignLinker.ActionType.Penumbra => IsChine ? "Penumbra Mod" : "Penumbra Mod",
+            // HeelsDesignLinker.ActionType.CustomizePlus => IsChine ? "Customize+ 配置" : "Customize+ Profile",  // 已移除
+            HeelsDesignLinker.ActionType.Honorific => IsChine ? "Honorific 称号" : "Honorific Title",
+            HeelsDesignLinker.ActionType.Moodles => IsChine ? "Moodles 状态" : "Moodles Status",
+            _ => "Unknown"
+        };
+        public static string RulesActionGuideHeader => IsChine ? "行动类型说明" : "Action types";
+        public static string PenumbraPriorityWarning => IsChine
+            ? "· 本插件不会验证你的 Penumbra Mod 优先级，请在 Penumbra 中手动设置优先级。"
+            : "· This plugin does not verify Penumbra mod priority — set priorities manually in Penumbra.";
+        public static string PerActionTypeHint => IsChine
+            ? "每个行动可独立选择类型（Glamourer / Penumbra / Honorific / Moodles），不再有全局模式。"
+            : "Each action independently chooses its type (Glamourer / Penumbra / Honorific / Moodles). There is no global mode.";
         public static string ModeSeparateRulesHint => IsChine
-            ? "Glamourer 与 Penumbra 各自维护独立规则（数量、顺序、高度条件、行动均可不同）。同索引规则的 Honorific / Moodles 会互相同步。"
-            : "Glamourer and Penumbra each have independent rules (count, order, conditions, and actions may differ). Honorific / Moodles sync by matching rule index.";
+            ? "每个行动可独立选择类型；同一规则内可混合使用不同类型的行动。"
+            : "Each action may use a different type; a single rule can mix Glamourer, Penumbra, Honorific and Moodles actions.";
+
+        public static string RuleSetLabel => IsChine ? "规则集:" : "Rule Set:";
+        public static string RuleSetNew => IsChine ? "新建" : "New";
+        public static string RuleSetRename => IsChine ? "重命名" : "Rename";
+        public static string RuleSetCopy => IsChine ? "复制" : "Copy";
+        public static string RuleSetDelete => IsChine ? "删除" : "Delete";
+        public static string RuleSetNewDefaultName => IsChine ? "新规则集" : "New Rule Set";
+        public static string RuleSetDefaultName => IsChine ? "默认规则集" : "Default Rule Set";
+        public static string RuleSetNamePrompt => IsChine ? "规则集名称:" : "Rule Set Name:";
+        public static string RuleSetRenamePrompt => IsChine ? "新名称:" : "New Name:";
+        public static string RuleSetCreate => IsChine ? "创建" : "Create";
+        public static string RuleSetConfirmDelete => IsChine ? "确定删除" : "Confirm Delete";
+        public static string RuleSetDeleteConfirmMessage(string name) => IsChine
+            ? $"确定要删除规则集「{name}」吗？此操作无法撤销！"
+            : $"Delete rule set \"{name}\"? This cannot be undone!";
+        public static string UseSimpleHeels => IsChine ? "使用 SimpleHeels" : "Use SimpleHeels";
+
+        public static string Ok => IsChine ? "确定" : "OK";
+        public static string Confirm => IsChine ? "确认" : "Confirm";
+        public static string RuleLabel(int index) => IsChine ? $"规则 {index}" : $"Rule {index}";
+        public static string RuleNameLabel => IsChine ? "名称:" : "Name:";
+        public static string ConditionGroupCount(int count) => IsChine
+            ? $"{count} 个条件组"
+            : $"{count} condition group(s)";
+        public static string RuleActionCount(int count) => IsChine
+            ? $"  {count} 个行动"
+            : $"  {count} action(s)";
+        public static string NoConditionsSummary => IsChine ? "无条件" : "No conditions";
+        public static string HeightAndEquipmentSummary => IsChine ? "高度 + 装备" : "Height + Equipment";
+        public static string HeightOnlySummary => IsChine ? "高度" : "Height";
+        public static string EquipmentOnlySummary => IsChine ? "装备" : "Equipment";
+        public static string EmptyConditionGroupsSummary => IsChine ? "空条件组" : "Empty condition groups";
+        public static string EnableDisableRuleTooltip => IsChine ? "启用/禁用规则" : "Enable or disable rule";
+        public static string ExpandRuleTooltip => IsChine ? "展开规则" : "Expand rule";
+        public static string CollapseRuleTooltip => IsChine ? "折叠规则" : "Collapse rule";
+        public static string PenumbraActionTypeLabel => IsChine ? "Penumbra 操作类型:" : "Penumbra action type:";
+        public static string PenumbraActionSetModOption => IsChine ? "设置 Mod 选项" : "Set mod option";
+        public static string PenumbraActionEnableMod => IsChine ? "启用 Mod" : "Enable mod";
+        public static string PenumbraActionDisableMod => IsChine ? "禁用 Mod" : "Disable mod";
+        public static string PenumbraEnableShort => IsChine ? "启用" : "Enable";
+        public static string PenumbraDisableShort => IsChine ? "禁用" : "Disable";
         
         public static string PenumbraSettings => IsChine ? "Penumbra 设置" : "Penumbra Settings";
         public static string Collection => IsChine ? "Collection（集合）" : "Collection";
@@ -90,8 +212,8 @@ namespace HeelsToggle
             : "Minimum seconds between auto-applies (Glamourer/Penumbra/Moodles/Honorific); 0 = no limit (default 1s)";
         public static string RuleMatchStableDelay => IsChine ? "规则匹配稳定延迟" : "Rule Match Stable Delay";
         public static string RuleMatchStableDelayHint => IsChine
-            ? "同一规则需持续匹配该时长后才会执行行动，可减轻切图/加载时高度抖动误触发；0 = 不等待（默认 0.1 秒）"
-            : "Actions run only after the same rule stays matched for this long; reduces false triggers during zone loads. 0 = no wait (default 0.1s)";
+            ? "同一规则需持续匹配该时长后才会执行行动，可减轻切图/加载时高度抖动误触发；0 = 不等待（默认 0.5 秒）"
+            : "Actions run only after the same rule stays matched for this long; reduces false triggers during zone loads. 0 = no wait (default 0.5s)";
         public static string RuleMatchStableWait(double remainingSeconds) => IsChine
             ? $"规则匹配稳定等待 {remainingSeconds:F2}s"
             : $"Rule match stable wait {remainingSeconds:F2}s";
@@ -100,8 +222,8 @@ namespace HeelsToggle
             ? "将所有规则与设置恢复为出厂默认值"
             : "Reset all rules and settings to factory defaults";
         public static string RestoreDefaultsConfirmMessage => IsChine
-            ? "将清除全部规则与设置（含 Glamourer / Penumbra 两套规则），并恢复为默认值。此操作不可撤销，请再次点击「确定恢复」以继续。"
-            : "This clears all rules and settings (both Glamourer and Penumbra rule sets) and restores defaults. This cannot be undone. Click \"Confirm Restore\" again to proceed.";
+            ? "将清除全部规则集与设置，并恢复为默认值。此操作不可撤销，请再次点击「确定恢复」以继续。"
+            : "This clears all rule sets and settings and restores defaults. This cannot be undone. Click \"Confirm Restore\" again to proceed.";
         public static string RestoreDefaultsConfirm => IsChine ? "确定恢复" : "Confirm Restore";
         public static string Cancel => IsChine ? "取消" : "Cancel";
         
@@ -110,7 +232,7 @@ namespace HeelsToggle
             ? "规则按从上到下的顺序匹配：命中第一条后不再检查后续规则（如果 / 否则如果 / 否则）。最后一条可设为「否则」兜底；「否则」后不能再有规则。可拖拽左侧握把调整顺序。"
             : "Rules are evaluated top to bottom (if / else if / else). The last rule may be an else fallback; rules after else are unreachable. Drag the left handle to reorder.";
         public static string HeightValue => IsChine ? "高度" : "Height";
-        public static string RuleDragHandle => "::";
+        public static string RuleDragHandle => ": :";
         public static string RuleDragHandleTooltip => IsChine ? "拖拽以调整规则顺序" : "Drag to reorder rules";
         public static string RuleDragPreview(int order) => IsChine ? $"移动规则 #{order}" : $"Move rule #{order}";
         public static string RuleOrderIf => IsChine ? "如果" : "IF";
@@ -144,8 +266,8 @@ namespace HeelsToggle
         };
 
         public static string RuleUnreachableHint => IsChine
-            ? "该规则永远不会被匹配：前面规则已覆盖所有可能高度，或无法执行到此"
-            : "This rule can never match: earlier rules cover all heights or block execution.";
+            ? "该规则永远不会被匹配：前面已有「否则」分支、已覆盖所有可能高度，或无法执行到此"
+            : "This rule can never match: a prior else branch, full height coverage, or blocked execution.";
         public static string DesignName => IsChine ? "设计名称" : "Design Name";
         public static string SelectGlamourerDesign => IsChine ? "选择 Glamourer 设计…" : "Select Glamourer design…";
         public static string GlamourerDesignListEmpty => IsChine ? "（无可用设计）" : "(No designs available)";
@@ -163,6 +285,15 @@ namespace HeelsToggle
         public static string DeleteRuleAction => IsChine ? "删除行动" : "Remove action";
         public static string RuleActionLabel(int index) => IsChine ? $"行动 {index}" : $"Action {index}";
         public static string RuleActionCollapseTooltip => IsChine ? "折叠 / 展开行动" : "Collapse / expand action";
+        public static string RulePenumbraModEnableDisableConflictHint => IsChine
+            ? "与同规则内其他 Penumbra 行动冲突：同一 Collection 的同一 Mod 同时启用与禁用"
+            : "Conflicts with another Penumbra action in this rule: the same collection and mod are both enabled and disabled";
+        public static string RulePenumbraOptionConflictHint => IsChine
+            ? "与同规则内其他 Penumbra 行动冲突：同一 Collection、同一 Mod 的同一选项组设置了不同效果"
+            : "Conflicts with another Penumbra action in this rule: the same collection, mod, and option group have different settings";
+        public static string RulePenumbraMultiToggleConflictHint => IsChine
+            ? "与同规则内其他 Penumbra 行动冲突：同一选项组内的子选项设置了相反的开关状态"
+            : "Conflicts with another Penumbra action in this rule: opposite toggle states for the same sub-option";
         public static string Save => IsChine ? "保存" : "Save";
         
         public static string CurrentMatchedRule => IsChine ? "当前匹配规则" : "Current Matched Rule";
@@ -194,8 +325,11 @@ namespace HeelsToggle
         public static string PenumbraFormat => IsChine ? "Penumbra 格式提示" : "Penumbra Format Hint";
         
         public static string GlamourerHint => IsChine
-            ? "每条规则可添加多个行动；匹配时按顺序应用所有 Glamourer 设计。"
-            : "Each rule can include multiple actions; all Glamourer designs are applied in order when matched.";
+            ? "每条规则可添加多个行动；每个行动可独立选择类型（Glamourer / Penumbra / Honorific / Moodles）。"
+            : "Each rule can include multiple actions; each action independently chooses Glamourer, Penumbra, Honorific or Moodles.";
+        public static string ActionTypeHint => IsChine
+            ? "Glamourer 应用外观设计；Penumbra 修改模组选项；Honorific 设置称号；Moodles 应用状态。"
+            : "Glamourer applies designs; Penumbra modifies mod options; Honorific sets titles; Moodles applies statuses.";
         public static string GlamourerFeetApplyMark => IsChine ? "[含脚部装备]" : "[Feet equipment]";
         public static string GlamourerFeetApplyTooltip => IsChine
             ? "带 [含脚部装备] 标记的设计，应用后可能改变鞋跟高度并触发其他规则"
@@ -273,11 +407,13 @@ namespace HeelsToggle
             : "Glamourer takeover active";
 
         public static string OptionalAddonsHint => IsChine
-            ? "每条规则可额外勾选 Honorific 称号或 Moodles 状态/预设，可与 Glamourer/Penumbra 组合，也可单独使用。"
-            : "Each rule may optionally apply an Honorific title or Moodles status/preset, combined with Glamourer/Penumbra or on its own.";
+            ? "每个行动可独立设置 Honorific 称号或 Moodles 状态/预设；不同行动的附加效果会全部执行。"
+            : "Each action may independently set Honorific title or Moodles status/preset; all addon effects from matched actions are applied.";
+        
+        public static string OptionalAddons => IsChine ? "可选附加效果" : "Optional Addons";
 
         public static string MoodlesRemoteApplyHint => IsChine
-            ? "Moodles 远程应用需在 Moodles 设置中开启 Allow Remote Apply。"
+            ? "Moodles 远程应用需在 Moodles 设置中开启「Allow Remote Apply」（允许远程应用）。"
             : "Moodles remote apply requires Allow Remote Apply in Moodles settings.";
 
         public static string EnableHonorific => IsChine ? "Honorific 称号（可选）" : "Honorific title (optional)";
@@ -304,6 +440,17 @@ namespace HeelsToggle
 
         public static string MoodlesStatus => IsChine ? "Moodles 状态" : "Moodles Status";
         public static string HonorificStatus => IsChine ? "Honorific 状态" : "Honorific Status";
+        public static string CustomizePlusStatus => IsChine ? "Customize+ 状态" : "Customize+ Status";
+        public static string CustomizePlusProfile => IsChine ? "配置" : "Profile";
+        public static string SelectCustomizePlusProfile => IsChine ? "选择 Customize+ 配置…" : "Select Customize+ profile…";
+        public static string CustomizePlusProfileListEmpty => IsChine ? "（无可用配置）" : "(No profiles available)";
+        public static string CustomizePlusListUnavailable => IsChine
+            ? "Customize+ IPC 不可用，无法加载配置列表"
+            : "Customize+ IPC unavailable; cannot load profile list";
+        public static string CustomizePlusValueNotInList(string value) => IsChine
+            ? $"{value}（未在列表中）"
+            : $"{value} (not in list)";
+        
         public static string LastAppliedPrimary => IsChine ? "最后应用（主输出）" : "Last applied (primary)";
         public static string LastAppliedHonorific => IsChine ? "最后应用（Honorific）" : "Last applied (Honorific)";
         public static string LastAppliedMoodle => IsChine ? "最后应用（Moodles）" : "Last applied (Moodles)";
@@ -314,5 +461,92 @@ namespace HeelsToggle
         public static string RuleMatched(int index) => IsChine 
             ? $"匹配规则 #{index + 1}" 
             : $"Matched Rule #{index + 1}";
+        
+        // 调试信息
+        public static string GlamourerEquipmentStatus => IsChine ? "Glamourer 装备槽状态" : "Glamourer Equipment Status";
+        public static string EquipmentStatusUnavailable => IsChine ? "（Glamourer 不可用）" : "(Glamourer unavailable)";
+        public static string EquipmentStatusNoCharacter => IsChine ? "（角色未登录）" : "(Character not logged in)";
+        public static string EquipmentStatusEquipped => IsChine ? "✓ 已装备" : "✓ Equipped";
+        public static string EquipmentStatusNotEquipped => IsChine ? "✗ 未装备" : "✗ Not equipped";
+        public static string EquipmentStatusUnknown => IsChine ? "？ 未知" : "? Unknown";
+        
+        // Debug 页面 - Glamourer 装备状态
+        public static string DebugForceRefreshGlamourer => IsChine ? "🔄 强制刷新 Glamourer 状态" : "🔄 Force Refresh Glamourer State";
+        public static string DebugLastUpdate => IsChine ? "最后更新" : "Last updated";
+        public static string DebugLastUpdateNever => IsChine ? "从未" : "Never";
+        public static string DebugLastUpdateJustNow => IsChine ? "刚才" : "Just now";
+        public static string DebugGlamourerStateNull => IsChine 
+            ? "⚠ Glamourer 状态为 null - 点击上方按钮刷新" 
+            : "⚠ Glamourer state is null - click button above to refresh";
+        public static string DebugShowingInventoryEquipment => IsChine 
+            ? "✓ 显示背包实际装备（Glamourer数据仅供参考）" 
+            : "✓ Showing actual inventory equipment (Glamourer data for reference only)";
+        public static string DebugColorLegend => IsChine 
+            ? "○ 蓝色 = 正常装备 | ⚠ 橙色 = 特殊物品 | X 红色 = 未装备" 
+            : "○ Blue = Normal | ⚠ Orange = Special item | X Red = Not equipped";
+        public static string DebugGlamourerDataNote => IsChine 
+            ? "灰色/橙色括号 = Glamourer状态（如果与背包不同）" 
+            : "Gray/Orange parentheses = Glamourer state (if different from inventory)";
+        public static string DebugLocalPlayerUnavailable => IsChine ? "⚠ 本地玩家不可用" : "⚠ Local player unavailable";
+        public static string DebugCharacterDataUnavailable => IsChine ? "⚠ 角色数据不可用" : "⚠ Character data unavailable";
+        public static string DebugInventoryManagerUnavailable => IsChine ? "⚠ InventoryManager 不可用" : "⚠ InventoryManager unavailable";
+        public static string DebugEquipmentContainerUnavailable => IsChine ? "⚠ 装备背包不可用" : "⚠ Equipment container unavailable";
+        public static string DebugInventoryItemId => IsChine ? "背包ItemId" : "Inventory ItemId";
+        public static string DebugSpecialItem => IsChine ? "[特殊物品]" : "[Special Item]";
+        public static string DebugNotEquipped => IsChine ? "[未装备]" : "[Not Equipped]";
+        public static string DebugGlamourerItemId => IsChine ? "Glam: ItemId" : "Glam: ItemId";
+        public static string DebugSlotError => IsChine ? "错误" : "Error";
+        public static string DebugSlotNoData => IsChine ? "无数据" : "No data";
+        
+        // 基准行动系统
+        public static string BaselineActions => IsChine ? "基准行动" : "Baseline Actions";
+        public static string BaselineActionsDesc => IsChine 
+            ? "在规则匹配前管理各参数的默认状态（Penumbra / Glamourer / Moodles / Honorific）" 
+            : "Manage default parameter states before rule matching (Penumbra / Glamourer / Moodles / Honorific)";
+        public static string BaselineActionsEnable => IsChine ? "启用基准行动系统" : "Enable Baseline Actions";
+        public static string BaselineActionsEnableTooltip => IsChine 
+            ? "启用后，规则匹配前会先应用基准状态" 
+            : "When enabled, baseline states are applied before rule matching";
+        public static string BaselineNoParameters => IsChine 
+            ? "（未检测到参数，创建规则后会自动扫描）" 
+            : "(No parameters detected, will auto-scan after creating rules)";
+        public static string BaselineParameter => IsChine ? "参数" : "Parameter";
+        public static string BaselineMode => IsChine ? "模式" : "Mode";
+        public static string BaselineModeAuto => IsChine ? "自动" : "Auto";
+        public static string BaselineModeManual => IsChine ? "手动" : "Manual";
+        public static string BaselineModeIgnore => IsChine ? "忽略" : "Ignore";
+        public static string BaselineManualEnabled => IsChine ? "启用" : "Enabled";
+        public static string BaselineManualDisabled => IsChine ? "禁用" : "Disabled";
+        public static string BaselineManualModEnabled => IsChine ? "Mod 启用" : "Mod enabled";
+        public static string BaselineManualOptions => IsChine ? "选项设置" : "Option settings";
+        public static string BaselineSyncFromRules => IsChine ? "从规则同步" : "Sync from rules";
+        public static string BaselineSyncFromRulesTooltip => IsChine 
+            ? "从当前规则集中扫描此 Mod 的选项设置" 
+            : "Scan option settings for this mod from current rules";
+        public static string BaselineModeAutoTooltip => IsChine 
+            ? "自动：使用推荐默认（Penumbra 禁用 Mod；Glamourer 还原；Honorific 清除称号）" 
+            : "Auto: Recommended defaults (Penumbra disable mod; Glamourer revert; Honorific clear title)";
+        public static string BaselineModeManualTooltip => IsChine 
+            ? "手动：展开详细设置，自定义启用/禁用及参数" 
+            : "Manual: Expand detailed settings for enable/disable and parameters";
+        public static string BaselineModeIgnoreTooltip => IsChine 
+            ? "忽略：不管理此参数，保持当前状态" 
+            : "Ignore: Don't manage this parameter, keep current state";
+        public static string BaselineManualStateTooltip => IsChine 
+            ? "手动模式：规则匹配前应用的状态" 
+            : "Manual mode: State applied before rule matching";
+        public static string BaselineNewParameter => IsChine ? "[新]" : "[NEW]";
+        public static string BaselineDismissAll => IsChine ? "忽略所有新参数" : "Dismiss All New";
+        public static string BaselineDismissAllTooltip => IsChine 
+            ? "一键消除所有黄色的新参数提醒" 
+            : "Clear all yellow new parameter highlights";
+        public static string BaselineRefresh => IsChine ? "刷新扫描" : "Refresh Scan";
+        public static string BaselineRefreshTooltip => IsChine 
+            ? "重新扫描当前规则集中的所有参数" 
+            : "Re-scan all parameters in current rule set";
+        public static string BaselinePenumbraMod => IsChine ? "Penumbra Mod" : "Penumbra Mod";
+        public static string BaselineGlamourerDesign => IsChine ? "Glamourer 设计" : "Glamourer Design";
+        public static string BaselineMoodle => IsChine ? "Moodles 状态" : "Moodles Status";
+        public static string BaselineHonorific => IsChine ? "Honorific 称号" : "Honorific Title";
     }
 }

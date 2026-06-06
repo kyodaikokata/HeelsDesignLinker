@@ -6,15 +6,15 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-        <RootNamespace>HeelsToggle</RootNamespace>
-        <AssemblyName>HeelsToggle</AssemblyName>
+        <RootNamespace>HeelsDesignLinker</RootNamespace>
+        <AssemblyName>HeelsDesignLinker</AssemblyName>
 
         <Use_Dalamud_CN>true</Use_Dalamud_CN>
         <DalamudApiLevel>15</DalamudApiLevel>
 
-        <Version>1.1.0</Version>
-        <AssemblyVersion>1.1.0.0</AssemblyVersion>
-        <FileVersion>1.1.0.0</FileVersion>
+        <Version>1.2.0</Version>
+        <AssemblyVersion>1.2.0.0</AssemblyVersion>
+        <FileVersion>1.2.0.0</FileVersion>
 
         <Author>KKT</Author>
         <Name>Heels Design Linker</Name>
@@ -33,6 +33,7 @@
     <Target Name="CleanStalePublishArtifacts" BeforeTargets="CoreBuild" Condition="'$(Configuration)' == 'Release'">
         <RemoveDir Directories="$(TargetDir)net10.0-windows" Condition="Exists('$(TargetDir)net10.0-windows')" />
         <RemoveDir Directories="$(TargetDir)$(AssemblyName)" Condition="Exists('$(TargetDir)$(AssemblyName)')" />
+        <RemoveDir Directories="$(TargetDir)legacy" Condition="Exists('$(TargetDir)legacy')" />
     </Target>
 
     <Target Name="CreateCleanPluginZip" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
@@ -53,8 +54,8 @@
         <Copy SourceFiles="$(_ManifestPath)" DestinationFolder="$(_ZipStaging)" Condition="Exists('$(_ManifestPath)')" />
 
         <Delete Files="$(_ZipPath)" Condition="Exists('$(_ZipPath)')" />
-        <!-- 使用 Compress-Archive，避免 ZipDirectory 在 Windows 下产生 Dalamud 无法解压的路径 -->
-        <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;Compress-Archive -Path '$(_ZipStaging)*' -DestinationPath '$(_ZipPath)' -Force&quot;" />
+        <!-- 仅打包 dll + pdb + json，避免通配符误纳入子目录 -->
+        <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;Compress-Archive -LiteralPath '$(_ZipStaging)$(AssemblyName).dll','$(_ZipStaging)$(AssemblyName).pdb','$(_ZipStaging)$(AssemblyName).json' -DestinationPath '$(_ZipPath)' -Force&quot;" />
 
         <Copy SourceFiles="$(_ManifestPath)" DestinationFiles="$(_PublishDir)$(AssemblyName).json" SkipUnchangedFiles="true" Condition="Exists('$(_ManifestPath)')" />
     </Target>

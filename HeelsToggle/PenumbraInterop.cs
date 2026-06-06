@@ -4,7 +4,7 @@ using System;
 using Dalamud.Plugin;
 using Newtonsoft.Json.Linq;
 
-namespace HeelsToggle;
+namespace HeelsDesignLinker;
 
 /// <summary>
 /// Penumbra IPC 返回码（与 Penumbra.Api.Enums.PenumbraApiEc 数值一致，避免引用 NuGet 包）。
@@ -44,6 +44,7 @@ internal sealed class PenumbraInterop
     private const string GetModListGate = "Penumbra.GetModList";
     private const string GetAvailableModSettingsGate = "Penumbra.GetAvailableModSettings.V5";
     private const string GetCurrentModSettingsGate = "Penumbra.GetCurrentModSettings.V5";
+    private const string TrySetModGate = "Penumbra.TrySetMod.V5";
     private const string TrySetModSettingGate = "Penumbra.TrySetModSetting.V5";
     private const string TrySetModSettingsGate = "Penumbra.TrySetModSettings.V5";
     private const string RemoveTemporaryModSettingsPlayerGate = "Penumbra.RemoveTemporaryModSettingsPlayer.V5";
@@ -74,6 +75,11 @@ internal sealed class PenumbraInterop
         _pluginInterface = pluginInterface;
     }
 
+    public void Dispose()
+    {
+        // Cleanup if needed
+    }
+
     public static bool IsPenumbraLoaded(IDalamudPluginInterface pluginInterface)
     {
         return pluginInterface.InstalledPlugins.Any(p =>
@@ -88,6 +94,7 @@ internal sealed class PenumbraInterop
         try
         {
             _ = GetCollections();
+            
             return true;
         }
         catch
@@ -456,6 +463,58 @@ internal sealed class PenumbraInterop
                     error = $"Penumbra IPC: {ipcResult}";
                     return false;
                 }
+            }
+
+            if (IsPenumbraIpcSuccess(result))
+                return true;
+
+            error = $"Penumbra IPC: {result}";
+            return false;
+        }
+        catch (Exception ex)
+        {
+            error = $"Penumbra IPC 调用失败: {ex.Message}";
+            return false;
+        }
+    }
+
+    public bool TrySetModEnabled(
+        string collectionName,
+        string modDirectory,
+        bool enabled,
+        out PenumbraIpcEc result,
+        out string error)
+    {
+        result = PenumbraIpcEc.UnknownError;
+        error = "";
+
+        if (string.IsNullOrWhiteSpace(collectionName)
+            || string.IsNullOrWhiteSpace(modDirectory))
+        {
+            error = "Penumbra 配置不完整（Collection / Mod）";
+            return false;
+        }
+
+        if (!TryResolveCollectionId(collectionName, out var collectionId, out error))
+            return false;
+
+        var modName = ResolveModDisplayName(modDirectory);
+        var trimmedModDirectory = modDirectory.Trim();
+
+        try
+        {
+            var subscriber = _pluginInterface.GetIpcSubscriber<Guid, string, string, bool, object>(
+                TrySetModGate);
+            var ipcResult = subscriber.InvokeFunc(
+                collectionId,
+                trimmedModDirectory,
+                modName,
+                enabled);
+
+            if (!TryConvertPenumbraIpcEc(ipcResult, out result))
+            {
+                error = $"Penumbra IPC: {ipcResult}";
+                return false;
             }
 
             if (IsPenumbraIpcSuccess(result))
