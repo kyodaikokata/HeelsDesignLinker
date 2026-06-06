@@ -4,10 +4,21 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.2.0.2";
+        public const string CurrentVersion = "1.2.0.3";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.2.0.3",
+                "2026-06-06",
+                [
+                    "基准行动 UI：保存主区块与各类型分组（Penumbra / Glamourer / Moodles / Honorific）的展开/折叠状态",
+                    "复制规则集时一并复制基准行动 UI 展开状态",
+                ],
+                [
+                    "Baseline Actions UI: persist expand/collapse for the main section and each type group",
+                    "Copying a RuleSet also copies baseline UI expand state",
+                ]),
             new(
                 "1.2.0.2",
                 "2026-06-06",

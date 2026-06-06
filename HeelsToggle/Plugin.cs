@@ -402,6 +402,12 @@ namespace HeelsDesignLinker
         
         /// <summary>已忽略的新参数键（用户已 dismiss）</summary>
         public HashSet<string> DismissedNewParameters { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>基准行动主区块是否展开（UI 状态）。</summary>
+        public bool IsBaselineSectionExpanded { get; set; } = true;
+
+        /// <summary>基准行动各类型分组是否展开（UI 状态），键为 ActionType 名称。</summary>
+        public Dictionary<string, bool> BaselineExpandedTypeGroups { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         
         public RuleSet()
         {
@@ -419,7 +425,9 @@ namespace HeelsDesignLinker
             {
                 UseSimpleHeels = this.UseSimpleHeels,
                 SimpleHeelsMode = this.SimpleHeelsMode,
-                UseBaselineActions = this.UseBaselineActions
+                UseBaselineActions = this.UseBaselineActions,
+                IsBaselineSectionExpanded = this.IsBaselineSectionExpanded,
+                BaselineExpandedTypeGroups = new Dictionary<string, bool>(this.BaselineExpandedTypeGroups, StringComparer.OrdinalIgnoreCase)
             };
             
             // 深拷贝基准配置
@@ -3148,14 +3156,28 @@ namespace HeelsDesignLinker
             }
         }
         
+        private static bool IsBaselineTypeGroupExpanded(RuleSet ruleSet, ActionType type) =>
+            !ruleSet.BaselineExpandedTypeGroups.TryGetValue(type.ToString(), out var expanded) || expanded;
+
+        private void SetBaselineTypeGroupExpanded(RuleSet ruleSet, ActionType type, bool expanded)
+        {
+            ruleSet.BaselineExpandedTypeGroups[type.ToString()] = expanded;
+            SaveConfig();
+        }
+
         private void DrawBaselineActionsConfig(RuleSet ruleSet)
         {
             ImGui.Spacing();
             ImGui.Separator();
             ImGui.Spacing();
             
-            // 使用 CollapsingHeader 实现折叠
-            var headerOpen = ImGui.CollapsingHeader(Localization.BaselineActions, ImGuiTreeNodeFlags.DefaultOpen);
+            ImGui.SetNextItemOpen(ruleSet.IsBaselineSectionExpanded, ImGuiCond.Always);
+            var headerOpen = ImGui.CollapsingHeader(Localization.BaselineActions);
+            if (ImGui.IsItemToggledOpen())
+            {
+                ruleSet.IsBaselineSectionExpanded = !ruleSet.IsBaselineSectionExpanded;
+                SaveConfig();
+            }
             if (ImGui.IsItemHovered())
                 ImGui.SetTooltip(Localization.BaselineActionsDesc);
             
@@ -3266,8 +3288,11 @@ namespace HeelsDesignLinker
                         ImGui.PushStyleColor(ImGuiCol.Text, groupColor);
                     }
                     
-                    // 使用 TreeNode 实现折叠
-                    var treeOpen = ImGui.TreeNodeEx(groupName, ImGuiTreeNodeFlags.DefaultOpen);
+                    var groupExpanded = IsBaselineTypeGroupExpanded(ruleSet, actionType);
+                    ImGui.SetNextItemOpen(groupExpanded, ImGuiCond.Always);
+                    var treeOpen = ImGui.TreeNodeEx(groupName);
+                    if (ImGui.IsItemToggledOpen())
+                        SetBaselineTypeGroupExpanded(ruleSet, actionType, !groupExpanded);
                     ImGui.PopStyleColor();
                     
                     if (treeOpen)

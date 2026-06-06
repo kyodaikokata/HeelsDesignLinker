@@ -22,9 +22,9 @@
                          "other"
                      ],
     "DalamudApiLevel":  15,
-    "AssemblyVersion":  "1.2.0.2",
-    "Changelog":  "1.2.0.2: Fix login naked projection; stable DrawData gate; HeelsDesignLinker catalog paths; CN/Global manifests.",
-    "LastUpdate": "1780768613",
+    "AssemblyVersion":  "1.2.0.3",
+    "Changelog":  "1.2.0.3: Persist baseline Actions UI expand state per RuleSet (section + type groups).",
+    "LastUpdate": "1780768816",
     "RepoUrl":  "https://github.com/kyodaikokata/HeelsDesignLinker",
     "DownloadLinkInstall":  "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsDesignLinker/latest-global.zip",
     "DownloadLinkUpdate":  "https://raw.githubusercontent.com/kyodaikokata/HeelsDesignLinker/main/plugins/HeelsDesignLinker/latest-global.zip",
