@@ -675,17 +675,17 @@ namespace HeelsDesignLinker
         private static readonly TimeSpan DependencyRecheckWhenReady = TimeSpan.FromSeconds(30);
 
         /// <summary>本地玩家对象稳定就绪后，再等待一段时间才自动 apply，避免 &lt;me&gt; 未解析。</summary>
-        private static readonly TimeSpan AutoApplyStartupDelay = TimeSpan.FromSeconds(3);
+        private static readonly TimeSpan AutoApplyStartupDelay = TimeSpan.FromSeconds(0.5);
         /// <summary>登录保护期内主手锚点稳定时间，满足后才结束保护并允许规则匹配。</summary>
-        private static readonly TimeSpan LoginMainHandStableDelay = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan LoginMainHandStableDelay = TimeSpan.FromSeconds(0.5);
         /// <summary>登录保护期内最短等待，期间不进行任何规则匹配与 apply。</summary>
-        private static readonly TimeSpan MinPostLoginProtectionDelay = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan MinPostLoginProtectionDelay = TimeSpan.FromSeconds(0.5);
         /// <summary>登录保护最长持续时间，超时后自动结束以免拖慢正常游戏。</summary>
         private static readonly TimeSpan LoginProtectionMaxDuration = TimeSpan.FromSeconds(45);
         /// <summary>登录保护结束后，再延迟一段时间才允许基准行动（避免紧接 revert 把刚加载的投影剥掉）。</summary>
         private static readonly TimeSpan PostLoginBaselineDelay = TimeSpan.FromSeconds(5);
         /// <summary>收到 Glamourer 本地投影信号后，再稳定一段时间才允许规则评估。</summary>
-        private static readonly TimeSpan GlamourerEquipmentSettleDelay = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan GlamourerEquipmentSettleDelay = TimeSpan.FromSeconds(0.5);
         /// <summary>若 Glamourer 始终未发出本地投影信号，超过此时间后允许装备条件评估（兜底）。</summary>
         private static readonly TimeSpan GlamourerEquipmentFallback = TimeSpan.FromSeconds(25);
         /// <summary>登录后延迟多久才允许基准 Glamourer revert（与规则 Glamourer apply 无关）。</summary>

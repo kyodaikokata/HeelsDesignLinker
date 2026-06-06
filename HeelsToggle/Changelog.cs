@@ -4,10 +4,23 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.2.0.9";
+        public const string CurrentVersion = "1.2.1.0";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.2.1.0",
+                "2026-06-07",
+                [
+                    "登录保护预热缩短至 0.5s（启动延迟、主手锚点、Glamourer 稳定），加快首次进入游戏后的规则 apply",
+                    "修复 Release 包 manifest 缺少 IconUrl，安装后 Dalamud 插件列表不显示图标",
+                    "发布流程增加 zip manifest IconUrl 校验，并同步 images/icon.png 至 Release 仓库",
+                ],
+                [
+                    "Shorten login protection warmup to 0.5s (startup, main-hand anchor, Glamourer settle)",
+                    "Fix missing IconUrl in Release manifest so installed plugin shows icon in Dalamud",
+                    "Publish pipeline validates IconUrl in zip and syncs images/icon.png to Release repo",
+                ]),
             new(
                 "1.2.0.9",
                 "2026-06-07",
@@ -16,12 +29,16 @@ namespace HeelsDesignLinker
                     "移除首次 apply 即结束登录保护、以及登录期内提前规则评估（IsRuleEvaluationAllowed）",
                     "装备条件：Glamourer 与背包不一致视为未同步；修复稳定计时 restore 逻辑跳过匹配延迟",
                     "首次进入游戏若 Login 事件未触发，补全 ResetApplyState 初始化",
+                    "缩短登录保护等待（预热/主手/Glamourer 稳定均为 0.5s），匹配后仍使用 RuleMatchStableSeconds",
+                    "修复 Release 包 manifest 缺少 IconUrl，安装后 Dalamud 插件列表不显示图标",
                 ],
                 [
                     "Restore intent: no rule matching/apply during login protection; RuleMatchStableSeconds after it ends",
                     "Remove ending login protection on first apply and in-login early rule evaluation",
                     "Equipment Glamourer vs inventory mismatch unsynced; fix stability timer restore skipping delay",
                     "Reset apply state when login timestamp is first set if Login event did not fire",
+                    "Shorter login protection waits (0.5s warmup/anchor/glam settle); RuleMatchStableSeconds unchanged",
+                    "Fix missing IconUrl in Release manifest so installed plugin shows icon in Dalamud",
                 ]),
             new(
                 "1.2.0.8",
