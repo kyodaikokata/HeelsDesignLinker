@@ -1,0 +1,40 @@
+[
+  {
+    "Author": "KKT",
+    "Name": "Heels Design Linker",
+    "InternalName": "HeelsDesignLinker",
+    "Punchline": "Match rules by SimpleHeels height or rendered equipment — not just heels — then auto-apply Glamourer/Penumbra and more",
+    "Description": "【国服 CN 构建】不限于高跟鞋：按 SimpleHeels 高度或当前渲染装备外观匹配规则，自动联动 Glamourer/Penumbra，并可选用 Moodles / Honorific / SoundMixer。",
+    "ApplicableVersion": "any",
+    "Tags": [
+      "glamour",
+      "simple-heels",
+      "customization",
+      "automation",
+      "heels",
+      "penumbra",
+      "moodles",
+      "honorific",
+      "appearance",
+      "equipment"
+    ],
+    "CategoryTags": [
+      "utility",
+      "other"
+    ],
+    "DalamudApiLevel": 15,
+    "AssemblyVersion": "1.3.0.2",
+    "Changelog": "1.3.0.2: Fix Penumbra 20s re-apply; DTR status bar for matched rule. See in-app changelog.",
+    "LastUpdate": "0",
+    "RepoUrl": "https://github.com/kyodaikokata/HeelsDesignLinker",
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/kyodaikokata/KKT-Catalog/main/plugins/HeelsDesignLinker/latest-cn.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/kyodaikokata/KKT-Catalog/main/plugins/HeelsDesignLinker/latest-cn.zip",
+    "DownloadLinkTesting": "https://raw.githubusercontent.com/kyodaikokata/KKT-Catalog/main/plugins/HeelsDesignLinker/latest-cn.zip",
+    "IconUrl": "https://raw.githubusercontent.com/kyodaikokata/KKT-Catalog/main/images/HeelsDesignLinker/icon.png",
+    "LoadRequiredState": 0,
+    "LoadSync": false,
+    "CanUnloadAsync": true,
+    "LoadPriority": -10,
+    "ImageUrls": []
+  }
+]

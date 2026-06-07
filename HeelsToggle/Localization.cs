@@ -35,16 +35,38 @@ namespace HeelsDesignLinker
         // 插件元数据
         public static string PluginName => IsChine ? "Heels Design Linker" : "Heels Design Linker";
         public static string PluginPunchline => IsChine 
-            ? "根据 SimpleHeels 高度自动切换 Glamourer/Penumbra，并可选用 Moodles / Honorific" 
-            : "Auto-switch Glamourer/Penumbra by SimpleHeels height, with optional Moodles / Honorific";
+            ? "不限于高跟鞋：按 SimpleHeels 高度或当前渲染装备外观匹配规则，自动联动 Glamourer/Penumbra 等" 
+            : "Not just for heels: match rules by SimpleHeels height or rendered equipment, then drive Glamourer/Penumbra and more";
         
         // 命令帮助
         public static string CommandHelp => IsChine 
-            ? "打开高跟鞋设计联动器配置" 
+            ? "打开 Heels Design Linker 配置" 
             : "Open Heels Design Linker configuration";
         
         // 窗口标题
         public static string WindowTitle => $"{PluginName} v{Changelog.CurrentVersion}";
+
+        public static string StatusBarHeight(string height) => IsChine ? $"高度 {height}" : $"H {height}";
+
+        public static string ShowDtrStatusBar => IsChine
+            ? "在游戏顶部状态栏显示匹配信息"
+            : "Show match info in game status bar (DTR)";
+
+        public static string ShowDtrStatusBarTooltip => IsChine
+            ? "在屏幕顶部服务器信息栏显示当前高度与匹配规则；点击可打开配置窗口。"
+            : "Shows current height and matched rule in the server info bar at the top of the screen. Click to open settings.";
+        
+        public static string DtrBarTooltip => IsChine
+            ? "Heels Design Linker：点击打开配置"
+            : "Heels Design Linker: click to open settings";
+
+        public static string WindowMatchSummary(int index, string? ruleName)
+        {
+            if (!string.IsNullOrWhiteSpace(ruleName))
+                return IsChine ? $"规则 #{index + 1}: {ruleName}" : $"Rule #{index + 1}: {ruleName}";
+
+            return RuleMatched(index);
+        }
         
         // 标签页
         public static string TabRules => IsChine ? "规则" : "Rules";
@@ -85,6 +107,24 @@ namespace HeelsDesignLinker
             ? "SimpleHeels 不可用，已自动切换到手动模式。你可以通过滑块设置高度来测试规则。"
             : "SimpleHeels is unavailable; automatically switched to manual mode. Use the slider to set height for testing rules.";
         public static string DoubleClickToInput => IsChine ? "双击或Ctrl+点击以手动输入数值" : "Double-click or Ctrl+click to input value manually";
+
+        public static string PenumbraSettingsSection => IsChine ? "Penumbra" : "Penumbra";
+        public static string PenumbraSettingsSectionTooltip => IsChine
+            ? "控制规则触发的 Penumbra 写入方式及与 Glamourer 临时设置的冲突处理"
+            : "Controls how rule-triggered Penumbra writes apply and how Glamourer temporary conflicts are handled";
+        public static string PenumbraTemporaryApply => IsChine ? "临时写入模式（推荐）" : "Temporary apply mode (recommended)";
+        public static string PenumbraTemporaryApplyTooltip => IsChine
+            ? "开启时规则 apply 写入 Penumbra 临时层（登出/规则切换后恢复）；关闭则永久改写 collection 内 Mod 设定"
+            : "When on, rule apply writes Penumbra temporary settings (restored on logout/rule change); when off, permanently changes collection mod settings";
+        public static string PenumbraDisableTemporaryConfirmMessage => IsChine
+            ? "关闭临时写入后，规则 apply 将永久改变 Penumbra 模组设定，不会随登出或规则切换自动恢复。确定要继续吗？"
+            : "Disabling temporary apply will permanently change Penumbra mod settings in your collection. Changes will not revert on logout or rule switch. Continue?";
+        public static string PenumbraAutoOverwriteGlamourer => IsChine
+            ? "自动覆盖 Glamourer 临时设置"
+            : "Auto-overwrite Glamourer temporary settings";
+        public static string PenumbraAutoOverwriteGlamourerTooltip => IsChine
+            ? "开启后，apply 前若 Glamourer 已占用同一 Mod 的临时层，将自动清除再 apply；关闭时需在各 Penumbra 行动中单独授权"
+            : "When on, clears Glamourer temporary settings on the same mod before apply; when off, authorize per Penumbra action";
         
         // 条件系统
         public static string ConditionMode => IsChine ? "条件模式" : "Condition Mode";
@@ -101,6 +141,32 @@ namespace HeelsDesignLinker
         public static string EquipmentSlot => IsChine ? "装备槽位" : "Equipment Slot";
         public static string MustBeEquipped => IsChine ? "必须装备" : "Must be equipped";
         public static string MustNotBeEquipped => IsChine ? "必须未装备" : "Must not be equipped";
+        public static string EquipmentMatchAny => IsChine ? "任意装备（皇帝套除外）" : "Any equipment (excl. Emperor's)";
+        public static string EquipmentMatchSpecificModelId => IsChine ? "特定 ModelId" : "Specific ModelId";
+        public static string EquipmentMatchModeLabel => IsChine ? "匹配方式" : "Match by";
+        public static string EquipmentTargetModelIdLabel => IsChine ? "ModelId" : "ModelId";
+        public static string EquipmentReadCurrentModelId => IsChine ? "读取当前外观" : "Read current appearance";
+        public static string EquipmentItemSearchHint => IsChine ? "搜索物品名…" : "Search item name…";
+        public static string EquipmentItemSearchNoResults => IsChine ? "（无匹配物品）" : "(No matching items)";
+        public static string EquipmentItemSearchResult(string itemName, ushort modelId, byte variant) => IsChine
+            ? $"{itemName}（ModelId {modelId} · 变体 {variant}）"
+            : $"{itemName} (ModelId {modelId} · variant {variant})";
+        public static string EquipmentItemSearchResultNoVariant(string itemName, ushort modelId) => IsChine
+            ? $"{itemName}（ModelId {modelId}）"
+            : $"{itemName} (ModelId {modelId})";
+        public static string EquipmentModelIdWeaponsUnsupported => IsChine
+            ? "主手/副手不支持按 DrawObject ModelId 匹配，请使用「任意装备」"
+            : "Main/off hand cannot match DrawObject ModelId; use Any equipment";
+        public static string EquipmentModelIdReadFailed => IsChine ? "无法读取当前外观 ModelId" : "Failed to read current appearance ModelId";
+        public static string EquipmentModelIdPreview(string itemName, ushort modelId) => IsChine
+            ? $"预览：{itemName}（ModelId {modelId}）"
+            : $"Preview: {itemName} (ModelId {modelId})";
+        public static string EquipmentModelIdPreviewNoMatch(ushort modelId) => IsChine
+            ? $"预览：无匹配物品名（ModelId {modelId}）"
+            : $"Preview: no item name (ModelId {modelId})";
+        public static string EquipmentMustNotSpecificHint => IsChine
+            ? "当前槽位外观不是该 ModelId 时满足（光脚或其它模型也算满足）"
+            : "Satisfied when the slot appearance is not this ModelId (bare or another model counts)";
         public static string ConditionHint => IsChine 
             ? "选择 None 表示无条件（Else分支），选择 AND/OR 后添加条件" 
             : "Select None for unconditional (Else), or AND/OR to add conditions";
@@ -145,18 +211,26 @@ namespace HeelsDesignLinker
             // HeelsDesignLinker.ActionType.CustomizePlus => IsChine ? "Customize+ 配置" : "Customize+ Profile",  // 已移除
             HeelsDesignLinker.ActionType.Honorific => IsChine ? "Honorific 称号" : "Honorific Title",
             HeelsDesignLinker.ActionType.Moodles => IsChine ? "Moodles 状态" : "Moodles Status",
+            HeelsDesignLinker.ActionType.SoundMixer => IsChine ? "SoundMixer 音量" : "SoundMixer Audio",
             _ => "Unknown"
+        };
+
+        public static string SoundMixerActionKindLabel(SoundMixerActionKind kind) => kind switch
+        {
+            SoundMixerActionKind.TemporaryPreset => IsChine ? "临时预设" : "Temporary preset",
+            SoundMixerActionKind.TemporaryGroupVolume => IsChine ? "临时单组音量" : "Temporary group volume",
+            _ => kind.ToString(),
         };
         public static string RulesActionGuideHeader => IsChine ? "行动类型说明" : "Action types";
         public static string PenumbraPriorityWarning => IsChine
-            ? "· 本插件不会验证你的 Penumbra Mod 优先级，请在 Penumbra 中手动设置优先级。"
-            : "· This plugin does not verify Penumbra mod priority — set priorities manually in Penumbra.";
+            ? "本插件不会验证 Penumbra Mod 优先级，请在 Penumbra 中手动设置优先级。"
+            : "This plugin does not verify Penumbra mod priority — set priorities manually in Penumbra.";
         public static string PerActionTypeHint => IsChine
-            ? "每个行动可独立选择类型（Glamourer / Penumbra / Honorific / Moodles），不再有全局模式。"
-            : "Each action independently chooses its type (Glamourer / Penumbra / Honorific / Moodles). There is no global mode.";
+            ? "每个行动可独立选择类型（Glamourer / Penumbra / Honorific / Moodles / SoundMixer），不再有全局模式。"
+            : "Each action independently chooses its type (Glamourer / Penumbra / Honorific / Moodles / SoundMixer). There is no global mode.";
         public static string ModeSeparateRulesHint => IsChine
             ? "每个行动可独立选择类型；同一规则内可混合使用不同类型的行动。"
-            : "Each action may use a different type; a single rule can mix Glamourer, Penumbra, Honorific and Moodles actions.";
+            : "Each action may use a different type; a single rule can mix Glamourer, Penumbra, Honorific, Moodles and SoundMixer actions.";
 
         public static string RuleSetLabel => IsChine ? "规则集:" : "Rule Set:";
         public static string RuleSetNew => IsChine ? "新建" : "New";
@@ -173,6 +247,8 @@ namespace HeelsDesignLinker
             ? $"确定要删除规则集「{name}」吗？此操作无法撤销！"
             : $"Delete rule set \"{name}\"? This cannot be undone!";
         public static string UseSimpleHeels => IsChine ? "使用 SimpleHeels" : "Use SimpleHeels";
+        public static string SimpleHeelsSection => IsChine ? "SimpleHeels" : "SimpleHeels";
+        public static string SimpleHeelsSectionDisabled => IsChine ? "已关闭" : "Off";
 
         public static string Ok => IsChine ? "确定" : "OK";
         public static string Confirm => IsChine ? "确认" : "Confirm";
@@ -227,10 +303,10 @@ namespace HeelsDesignLinker
         public static string RestoreDefaultsConfirm => IsChine ? "确定恢复" : "Confirm Restore";
         public static string Cancel => IsChine ? "取消" : "Cancel";
         
-        public static string HeightRules => IsChine ? "高度规则" : "Height Rules";
+        public static string HeightRules => IsChine ? "匹配规则" : "Match Rules";
         public static string HeightRulesOrderHint => IsChine
-            ? "规则按从上到下的顺序匹配：命中第一条后不再检查后续规则（如果 / 否则如果 / 否则）。最后一条可设为「否则」兜底；「否则」后不能再有规则。可拖拽左侧握把调整顺序。"
-            : "Rules are evaluated top to bottom (if / else if / else). The last rule may be an else fallback; rules after else are unreachable. Drag the left handle to reorder.";
+            ? "规则按从上到下的顺序匹配：命中第一条后不再检查后续规则（如果 / 否则如果 / 否则）。每条规则可组合高度条件与装备外观条件（读取 DrawObject 渲染结果）。最后一条可设为「否则」兜底；「否则」后不能再有规则。可拖拽左侧握把调整顺序。"
+            : "Rules are evaluated top to bottom (if / else if / else). Each rule can combine height and rendered equipment conditions (DrawObject). The last rule may be an else fallback; rules after else are unreachable. Drag the left handle to reorder.";
         public static string HeightValue => IsChine ? "高度" : "Height";
         public static string RuleDragHandle => ": :";
         public static string RuleDragHandleTooltip => IsChine ? "拖拽以调整规则顺序" : "Drag to reorder rules";
@@ -265,6 +341,12 @@ namespace HeelsDesignLinker
             _ => comparison.ToString(),
         };
 
+        public static string RuleConditionHeightConflictHint => IsChine
+            ? "与同组其他高度条件矛盾，在「且」逻辑下无法同时满足"
+            : "Conflicts with another height condition in this group; cannot all be true under AND";
+        public static string RuleConditionEquipmentConflictHint => IsChine
+            ? "与同组同槽位装备条件矛盾，在「且」逻辑下无法同时满足"
+            : "Conflicts with another equipment condition on the same slot under AND";
         public static string RuleUnreachableHint => IsChine
             ? "该规则永远不会被匹配：前面已有「否则」分支、已覆盖所有可能高度，或无法执行到此"
             : "This rule can never match: a prior else branch, full height coverage, or blocked execution.";
@@ -288,6 +370,9 @@ namespace HeelsDesignLinker
         public static string RulePenumbraModEnableDisableConflictHint => IsChine
             ? "与同规则内其他 Penumbra 行动冲突：同一 Collection 的同一 Mod 同时启用与禁用"
             : "Conflicts with another Penumbra action in this rule: the same collection and mod are both enabled and disabled";
+        public static string RulePenumbraDisableBlocksOptionHint => IsChine
+            ? "与同规则内其他 Penumbra 行动冲突：禁用 Mod 时临时模式不会应用同 Mod 的选项设置（选项行动将被跳过）"
+            : "Conflicts with another Penumbra action: Disable Mod skips option apply for the same mod in temporary mode";
         public static string RulePenumbraOptionConflictHint => IsChine
             ? "与同规则内其他 Penumbra 行动冲突：同一 Collection、同一 Mod 的同一选项组设置了不同效果"
             : "Conflicts with another Penumbra action in this rule: the same collection, mod, and option group have different settings";
@@ -309,6 +394,35 @@ namespace HeelsDesignLinker
         public static string GlamourerStatus => IsChine ? "Glamourer 状态" : "Glamourer Status";
         public static string PenumbraStatus => IsChine ? "Penumbra 状态" : "Penumbra Status";
         public static string PenumbraIpcReady => IsChine ? "IPC 可用（静默切换）" : "IPC ready (silent apply)";
+        public static string SoundMixerStatus => IsChine ? "SoundMixer 状态" : "SoundMixer Status";
+        public static string SoundMixerIpcReady => IsChine ? "IPC 已连接" : "IPC connected";
+        public static string SoundMixerIpcVersion(int version, int expected) => IsChine
+            ? $"API 版本 {version}（期望 {expected}）"
+            : $"API version {version} (expected {expected})";
+        public static string SoundMixerIpcVersionMismatch => IsChine
+            ? "API 版本不匹配，部分 IPC 可能不可用"
+            : "API version mismatch; some IPC calls may fail";
+        public static string SoundMixerIpcGatesHeader => IsChine ? "SoundMixer IPC Gate 探测" : "SoundMixer IPC gate probe";
+        public static string SoundMixerIpcOverridesActive => IsChine
+            ? "本插件临时覆盖：活跃"
+            : "This plugin temporary overrides: active";
+        public static string SoundMixerIpcOverridesInactive => IsChine
+            ? "本插件临时覆盖：无"
+            : "This plugin temporary overrides: none";
+        public static string SoundMixerUnavailable => IsChine ? "SoundMixer 不可用" : "SoundMixer unavailable";
+        public static string SoundMixerActionKindHeader => IsChine ? "SoundMixer 操作:" : "SoundMixer action:";
+        public static string SoundMixerPresetLabel => IsChine ? "临时预设:" : "Temporary preset:";
+        public static string SoundMixerGroupLabel => IsChine ? "音量组:" : "Volume group:";
+        public static string SoundMixerVolumeLabel => IsChine ? "目标音量 (%)" : "Target volume (%)";
+        public static string SoundMixerVolumeRangeTooltip => IsChine
+            ? "范围 0%–350%（与 SoundMixer 引擎听感上限一致）"
+            : "Range 0%–350% (matches SoundMixer audible engine cap)";
+        public static string SoundMixerPriorityLabel => IsChine ? "优先级:" : "Priority:";
+        public static string SoundMixerTemporaryHint => IsChine
+            ? "使用 SoundMixer 临时覆盖 API；规则切换或登出时自动清除本插件的临时设置。"
+            : "Uses SoundMixer temporary override APIs; cleared when rules change or on logout.";
+        public static string NoneSelected => IsChine ? "<无>" : "<None>";
+        public static string Refresh => IsChine ? "刷新" : "Refresh";
         public static string Available => IsChine ? "可用" : "Available";
         public static string NotAvailable => IsChine ? "不可用" : "Not Available";
         
@@ -325,11 +439,11 @@ namespace HeelsDesignLinker
         public static string PenumbraFormat => IsChine ? "Penumbra 格式提示" : "Penumbra Format Hint";
         
         public static string GlamourerHint => IsChine
-            ? "每条规则可添加多个行动；每个行动可独立选择类型（Glamourer / Penumbra / Honorific / Moodles）。"
-            : "Each rule can include multiple actions; each action independently chooses Glamourer, Penumbra, Honorific or Moodles.";
+            ? "每条规则可添加多个行动；每个行动可独立选择类型（Glamourer / Penumbra / Honorific / Moodles / SoundMixer）。"
+            : "Each rule can include multiple actions; each action independently chooses Glamourer, Penumbra, Honorific, Moodles or SoundMixer.";
         public static string ActionTypeHint => IsChine
-            ? "Glamourer 应用外观设计；Penumbra 修改模组选项；Honorific 设置称号；Moodles 应用状态。"
-            : "Glamourer applies designs; Penumbra modifies mod options; Honorific sets titles; Moodles applies statuses.";
+            ? "Glamourer 应用外观设计；Penumbra 修改模组选项；Honorific 设置称号；Moodles 应用状态或预设；SoundMixer 切换临时预设或组音量。"
+            : "Glamourer applies designs; Penumbra modifies mod options; Honorific sets titles; Moodles applies statuses or presets; SoundMixer sets temporary preset or group volume.";
         public static string GlamourerFeetApplyMark => IsChine ? "[含脚部装备]" : "[Feet equipment]";
         public static string GlamourerFeetApplyTooltip => IsChine
             ? "带 [含脚部装备] 标记的设计，应用后可能改变鞋跟高度并触发其他规则"
@@ -375,13 +489,14 @@ namespace HeelsDesignLinker
         public static string PenumbraOptionGroupListEmpty => IsChine ? "（该模组无 Option 组）" : "(No option groups for this mod)";
         public static string PenumbraOptionNameListEmpty => IsChine ? "（该 Option 组无子选项）" : "(No options in this group)";
         public static string PenumbraOptionEnabled => IsChine ? "开启" : "On";
+        public static string PenumbraOptionDisabled => IsChine ? "关闭" : "Off";
         public static string PenumbraOptionEnabledHint => IsChine
-            ? "多选开关组：勾选表示匹配规则时启用该选项，取消勾选表示关闭该选项（保留同组其他开关状态）"
-            : "Multi-toggle group: checked enables this option when the rule matches; unchecked turns it off (other toggles in the group are kept)";
-        public static string PenumbraMultiToggleListLabel => IsChine ? "子选项开关" : "Sub-option toggles";
+            ? "多选开关组：On 表示匹配规则时启用该子选项，Off 表示关闭该子选项"
+            : "Multi-toggle group: On enables this sub-option when the rule matches; Off turns it off";
+        public static string PenumbraMultiToggleListLabel => IsChine ? "子选项状态" : "Sub-option state";
         public static string PenumbraMultiToggleListHint => IsChine
-            ? "匹配规则时按下方勾选状态设置该 Option 组：勾选的开启，未勾选的关闭"
-            : "When the rule matches, enabled options below are turned on and unchecked ones are turned off";
+            ? "匹配规则时按下方 On/Off 设置该 Option 组：On 的子选项开启，Off 的子选项关闭"
+            : "When the rule matches, sub-options set to On are enabled and Off are disabled in this option group";
         public static string PenumbraListUnavailable => IsChine
             ? "Penumbra IPC 不可用，无法加载下拉列表"
             : "Penumbra IPC unavailable; cannot load dropdown lists";
@@ -405,6 +520,18 @@ namespace HeelsDesignLinker
         public static string PenumbraModGlamourerTakeover => IsChine
             ? "Glamourer 已接管"
             : "Glamourer takeover active";
+        public static string PenumbraModGlamourerTakeoverWarning => IsChine
+            ? "Glamourer 已临时接管此模组；未授权覆盖时规则不会 apply"
+            : "Glamourer temporarily controls this mod; rule apply is skipped unless overwrite is allowed";
+        public static string PenumbraOverwriteGlamourerAction => IsChine
+            ? "覆盖 Glamourer 临时设置"
+            : "Overwrite Glamourer temporary settings";
+        public static string PenumbraOverwriteGlamourerActionTooltip => IsChine
+            ? "勾选后，此行动 apply 时会先清除 Glamourer 在该模组上的临时设置"
+            : "When checked, this action clears Glamourer temporary settings on this mod before apply";
+        public static string PenumbraGlamourerAutoOverwriteHint => IsChine
+            ? "已在设置中开启全局自动覆盖，apply 时将自动清除 Glamourer 临时设置"
+            : "Global auto-overwrite is enabled in Settings; Glamourer temporary settings are cleared on apply";
 
         public static string OptionalAddonsHint => IsChine
             ? "每个行动可独立设置 Honorific 称号或 Moodles 状态/预设；不同行动的附加效果会全部执行。"
@@ -497,6 +624,68 @@ namespace HeelsDesignLinker
         public static string DebugGlamourerItemId => IsChine ? "Glam: ItemId" : "Glam: ItemId";
         public static string DebugSlotError => IsChine ? "错误" : "Error";
         public static string DebugSlotNoData => IsChine ? "无数据" : "No data";
+
+        public static string DebugDrawObjectEquipmentStatus => IsChine
+            ? "DrawObject 渲染装备（ModelId → 物品名）"
+            : "DrawObject Rendered Equipment (ModelId → Item Name)";
+
+        public static string DebugDrawObjectNote => IsChine
+            ? "读取 DrawObject → Human 10 槽（无腰带）。物品名按 ModelId + 位置ID（EquipSlotCategory）严格匹配，不会跨槽显示。"
+            : "DrawObject → Human 10 slots (no waist). Item names require ModelId + EquipSlotCategory row ID; no cross-slot fallback.";
+
+        public static string DebugRebuildModelLookup => IsChine ? "重建 ModelId 对照表" : "Rebuild ModelId Lookup";
+
+        public static string DebugDrawObjectModelId => IsChine ? "ModelId" : "ModelId";
+
+        public static string DebugDrawObjectModelPath => IsChine ? "模型路径" : "Model Path";
+
+        public static string DebugDrawObjectVanillaPath => IsChine ? "原版 (Vanilla)" : "Vanilla";
+
+        public static string DebugDrawObjectPenumbraModClick => IsChine
+            ? "点击在 Penumbra 中打开此 Mod"
+            : "Click to open this mod in Penumbra";
+
+        public static string DebugDrawObjectItemName => IsChine ? "物品名" : "Item Name";
+
+        public static string DebugDrawObjectNotDrawn => IsChine
+            ? "角色当前未绘制（DrawObject 为空）"
+            : "Character is not being drawn (DrawObject is null)";
+
+        public static string DebugDrawObjectNotCharacterBase => IsChine
+            ? "DrawObject 不是 CharacterBase"
+            : "DrawObject is not CharacterBase";
+
+        public static string DebugDrawObjectNotHuman => IsChine
+            ? "DrawObject 不是 Human 模型"
+            : "DrawObject is not a Human model";
+
+        public static string DebugDrawObjectSmallclothes => IsChine
+            ? "Smallclothes（无装备 / 裸模）"
+            : "Smallclothes (no equipment)";
+
+        public static string DebugDrawObjectEmperorsNew => IsChine
+            ? "皇帝的新衣（隐形）"
+            : "Emperor's New Gear (invisible)";
+
+        public static string DebugDrawObjectVariant => IsChine ? "变体" : "Variant";
+
+        public static string DebugDrawObjectAlternateNameCount(int count) => IsChine
+            ? $"(另有 {count} 个名称)"
+            : $"(+{count} names)";
+
+        public static string DebugDrawObjectUnknownItem => IsChine ? "未收录" : "Unknown";
+
+        public static string DebugDrawObjectNoSlotMatch => IsChine ? "无匹配" : "No match";
+
+        public static string DebugDrawObjectEquipSlotCategoryId => IsChine ? "位置ID" : "SlotCat";
+
+        public static string DebugDrawObjectHumanIndex => IsChine ? "Human#" : "Human#";
+
+        public static string DebugDrawObjectLookupCount(int count) => IsChine
+            ? $"对照表条目：{count} 个 ModelId"
+            : $"Lookup entries: {count} model IDs";
+
+        public static string DebugDrawObjectTableSlot => IsChine ? "槽位" : "Slot";
         
         // 基准行动系统
         public static string BaselineActions => IsChine ? "基准行动" : "Baseline Actions";
@@ -510,6 +699,9 @@ namespace HeelsDesignLinker
         public static string BaselineNoParameters => IsChine 
             ? "（未检测到参数，创建规则后会自动扫描）" 
             : "(No parameters detected, will auto-scan after creating rules)";
+        public static string BaselinePenumbraDisabledInTemporaryMode => IsChine
+            ? "临时写入模式下不显示、不应用 Penumbra 基准设置（请在设置页关闭临时模式以使用 Penumbra 基准）"
+            : "Penumbra baseline settings are hidden and not applied in temporary apply mode (disable temporary mode in Settings to use Penumbra baseline)";
         public static string BaselineParameter => IsChine ? "参数" : "Parameter";
         public static string BaselineMode => IsChine ? "模式" : "Mode";
         public static string BaselineModeAuto => IsChine ? "自动" : "Auto";
@@ -548,5 +740,101 @@ namespace HeelsDesignLinker
         public static string BaselineGlamourerDesign => IsChine ? "Glamourer 设计" : "Glamourer Design";
         public static string BaselineMoodle => IsChine ? "Moodles 状态" : "Moodles Status";
         public static string BaselineHonorific => IsChine ? "Honorific 称号" : "Honorific Title";
+
+        // 运行时门控 / 状态（原 Plugin 内联字符串）
+        public static string NotLoggedIn => IsChine ? "未登录" : "Not logged in";
+        public static string WaitingForLocalPlayer => IsChine ? "等待本地角色对象" : "Waiting for local player object";
+        public static string BetweenAreasLoading => IsChine ? "过图/加载中" : "Between areas / loading";
+        public static string WaitingForMainHandEquipmentData => IsChine ? "等待主手装备数据" : "Waiting for main-hand equipment data";
+        public static string WaitingForMainHandEquipment => IsChine ? "等待主手装备加载" : "Waiting for main-hand equipment";
+        public static string MainHandAnchorStabilizing(double seconds) => IsChine
+            ? $"主手装备稳定中 {seconds:F1}s"
+            : $"Main-hand anchor stabilizing {seconds:F1}s";
+        public static string StartupDelayRemaining(double seconds) => IsChine
+            ? $"启动延迟 {seconds:F1}s"
+            : $"Startup delay {seconds:F1}s";
+        public static string LoginWarmupRemaining(double seconds) => IsChine
+            ? $"登录预热 {seconds:F1}s"
+            : $"Login warmup {seconds:F1}s";
+        public static string LoginPrepRemaining(double seconds) => IsChine
+            ? $"登录准备 {seconds:F1}s"
+            : $"Login prep {seconds:F1}s";
+        public static string ApplyCooldownRemaining(double seconds) => IsChine
+            ? $"应用冷却 {seconds:F1}s"
+            : $"Apply cooldown {seconds:F1}s";
+        public static string PluginLoadedIpcPending => IsChine ? "△ 已加载 / IPC 等待中" : "△ Loaded / IPC pending";
+        public static string LoadedIpcNotReady => IsChine ? "已加载，IPC 未就绪" : "Loaded, IPC not ready";
+
+        // SimpleHeels / IPC 调试
+        public static string SimpleHeelsDisabledIpc => IsChine ? "未使用 SimpleHeels" : "SimpleHeels disabled";
+        public static string SimpleHeelsUnavailableIpc => IsChine ? "SimpleHeels 不可用" : "SimpleHeels unavailable";
+        public static string DefaultOffsetNotFound => IsChine ? "无法找到 DefaultOffset 字段" : "DefaultOffset field not found";
+        public static string ParseError(string message) => IsChine ? $"解析错误: {message}" : $"Parse error: {message}";
+        public static string SimpleHeelsConnectionFailedWarning => IsChine
+            ? "⚠ SimpleHeels 连接失败！"
+            : "⚠ SimpleHeels connection failed!";
+
+        // 基准参数预览
+        public static string BaselinePreviewCollection(string collection) => IsChine
+            ? $"集合: {collection}"
+            : $"Collection: {collection}";
+        public static string BaselinePreviewModName(string modName) => IsChine
+            ? $"Mod名称: {modName}"
+            : $"Mod Name: {modName}";
+        public static string BaselinePreviewDesign(string design) => IsChine
+            ? $"设计名称/GUID: {design}"
+            : $"Design Name/GUID: {design}";
+        public static string BaselinePreviewName(string name) => IsChine ? $"名称: {name}" : $"Name: {name}";
+        public static string BaselinePreviewTitle => IsChine ? "称号" : "Title";
+        public static string OptionOnShort => IsChine ? "启用" : "On";
+
+        // 条件 / 行动编辑
+        public static string DragToReorderConditions => IsChine ? "拖动以调整顺序" : "Drag to reorder";
+        public static string DeleteThisCondition => IsChine ? "删除此条件" : "Delete this condition";
+        public static string ConfirmDeleteCondition => IsChine ? "确认删除此条件？" : "Delete this condition?";
+        public static string AddNewConditionTooltip => IsChine ? "添加新条件" : "Add new condition";
+        public static string ToNextGroupLabel => IsChine ? "连接到下一组" : "to next group";
+        public static string DeleteThisAction => IsChine ? "删除此行动" : "Delete this action";
+
+        // Honorific / Moodles 行动编辑
+        public static string HonorificUnavailable => IsChine ? "Honorific 不可用" : "Honorific unavailable";
+        public static string PlayerNotLoggedIn => IsChine ? "玩家未登录" : "Player not logged in";
+        public static string HonorificTitleLabel => IsChine ? "Honorific 称号:" : "Honorific Title:";
+        public static string NoTitlesAvailable => IsChine ? "无可用称号" : "No titles available";
+        public static string MoodlesUnavailable => IsChine ? "Moodles 不可用" : "Moodles unavailable";
+        public static string MoodlesStatusPresetLabel => IsChine ? "Moodles 预设/状态:" : "Moodles Preset/Status:";
+        public static string NoMoodlesAvailable => IsChine ? "无可用 Moodles" : "No moodles available";
+        public static string MoodlesStatusSection => IsChine ? "--- 状态 ---" : "--- Status ---";
+        public static string MoodlesPresetsSection => IsChine ? "--- 预设 ---" : "--- Presets ---";
+        public static string MoodleTypePreset => IsChine ? "预设" : "Preset";
+        public static string MoodleTypeStatus => IsChine ? "状态" : "Status";
+        public static string CustomizePlusSupportRemoved => IsChine ? "Customize+ 支持已移除" : "Customize+ support removed";
+        public static string GlamourerDesignFeetConflictWarning => IsChine
+            ? "⚠ 此设计包含脚部装备，可能会与 SimpleHeels 冲突"
+            : "⚠ This design contains feet equipment, may conflict with SimpleHeels";
+
+        // 调试页
+        public static string Checking => IsChine ? "检测中…" : "Checking…";
+        public static string IpcTestHeader => IsChine ? "IPC 测试" : "IPC Test";
+        public static string ConfigFileLocation => IsChine ? "配置文件位置" : "Config File Location";
+        public static string MigrateConfigManually => IsChine ? "手动迁移配置" : "Migrate Config Manually";
+        public static string NoConfigFileWarning => IsChine ? "警告：未找到任何配置文件" : "Warning: No config file found";
+        public static string LastExecutedActions => IsChine ? "最后执行的行动" : "Last Executed Actions";
+        public static string DiagnosticInfo => IsChine ? "诊断信息" : "Diagnostic Info";
+        public static string BaselineNoOptionsSyncFromRules => IsChine
+            ? "（无选项，请从规则同步）"
+            : "(No options — sync from rules)";
+        public static string ConfirmDeleteRuleMessage => IsChine
+            ? "确定要删除此规则吗？"
+            : "Are you sure you want to delete this rule?";
+        public static string ConfirmDeleteActionMessage => IsChine
+            ? "确定要删除此行动吗？"
+            : "Are you sure you want to delete this action?";
+        public static string MovingCondition(int index) => IsChine
+            ? $"移动条件 {index + 1}"
+            : $"Moving condition {index + 1}";
+        public static string CustomizePlusRemovedTooltip => IsChine
+            ? "Customize+ 不提供所需的 IPC 方法，暂时无法支持。\n如需使用 Customize+ 配置，请直接在 Customize+ 插件中管理。"
+            : "Customize+ does not provide required IPC methods.\nPlease manage profiles directly in Customize+ plugin.";
     }
 }

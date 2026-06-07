@@ -12,6 +12,9 @@ internal enum PenumbraActionConflictKind
 
     MultiToggleSubOption,
 
+    /// <summary>同一 Mod 上 DisableMod 会使临时模式跳过 SetModOption。</summary>
+    DisableModBlocksOption,
+
 }
 
 
@@ -113,6 +116,48 @@ internal static class RulePenumbraActionAnalysis
             if (hasEnable && hasDisable)
 
                 MarkAll(entries.Select(e => e.Index), PenumbraActionConflictKind.ModEnableDisable);
+
+        }
+
+
+
+        // DisableMod 与 SetModOption 同 Mod：临时模式 batch 会跳过选项
+
+        foreach (var (modKey, entries) in modStateActions)
+
+        {
+
+            if (!entries.Any(e => e.Kind == PenumbraActionKind.DisableMod))
+
+                continue;
+
+
+
+            for (var i = 0; i < actions.Count; i++)
+
+            {
+
+                var action = actions[i];
+
+                if (!IsAnalyzablePenumbraAction(action)
+
+                    || action.PenumbraActionKind != PenumbraActionKind.SetModOption)
+
+                    continue;
+
+
+
+                if (string.Equals(BuildPenumbraModKey(action), modKey, StringComparison.OrdinalIgnoreCase))
+
+                    Mark(i, PenumbraActionConflictKind.DisableModBlocksOption);
+
+            }
+
+
+
+            foreach (var entry in entries.Where(e => e.Kind == PenumbraActionKind.DisableMod))
+
+                Mark(entry.Index, PenumbraActionConflictKind.DisableModBlocksOption);
 
         }
 

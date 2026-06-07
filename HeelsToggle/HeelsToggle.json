@@ -2,10 +2,10 @@
   "Author": "KKT",
   "Name": "Heels Design Linker",
   "InternalName": "HeelsDesignLinker",
-  "Punchline": "Auto-switch Glamourer/Penumbra by SimpleHeels height, with optional Moodles / Honorific",
-  "Description": "根据 SimpleHeels 的实时高度自动联动 Glamourer 设计或 Penumbra mod 选项，并可选用 Moodles 状态/预设与 Honorific 称号。",
+  "Punchline": "Match rules by SimpleHeels height or rendered equipment — not just heels — then auto-apply Glamourer/Penumbra and more",
+  "Description": "不限于高跟鞋：按 SimpleHeels 高度或当前渲染装备外观匹配规则，自动联动 Glamourer/Penumbra，并可选用 Moodles / Honorific / SoundMixer。",
   "ApplicableVersion": "any",
-  "AssemblyVersion": "1.2.1.1",
+  "AssemblyVersion": "1.3.0.2",
   "DalamudApiLevel": 15,
   "Tags": [
     "glamour",

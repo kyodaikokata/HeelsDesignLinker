@@ -31,8 +31,6 @@ internal sealed class GlamourerInterop
     
     // 状态变化事件回调
     public event Action? OnStateChanged;
-    /// <summary>Glamourer 完成对指定角色的投影后触发（登录后应等待此事件再 apply）。</summary>
-    public event Action<nint>? OnStateFinalized;
     
     // 用于调试：记录事件触发次数
     public int StateChangedEventCount { get; private set; }
@@ -52,8 +50,6 @@ internal sealed class GlamourerInterop
     private JObject? _cachedPlayerState;
     private DateTime _stateLastFetchedUtc = DateTime.MinValue;
     private static readonly TimeSpan StateCacheTimeout = TimeSpan.FromMilliseconds(100); // 短暂缓存，避免同一帧多次查询
-    private DateTime? _localProjectionFirstSignalUtc;
-    private bool _localProjectionSettled;
 
     public GlamourerInterop(IDalamudPluginInterface pluginInterface, IObjectTable? objectTable = null)
     {
@@ -178,7 +174,6 @@ internal sealed class GlamourerInterop
     private void OnGlamourerStateChangedV2(nint actorAddress)
     {
         StateChangedEventCount++;
-        NoteLocalPlayerProjectionSignal(actorAddress);
         _cachedPlayerState = null;
         _stateLastFetchedUtc = DateTime.MinValue;
         OnStateChanged?.Invoke();
@@ -187,7 +182,6 @@ internal sealed class GlamourerInterop
     private void OnGlamourerStateChangedWithType(nint actorAddress, int changeType)
     {
         StateChangedWithTypeEventCount++;
-        NoteLocalPlayerProjectionSignal(actorAddress);
         _cachedPlayerState = null;
         _stateLastFetchedUtc = DateTime.MinValue;
         OnStateChanged?.Invoke();
@@ -196,77 +190,9 @@ internal sealed class GlamourerInterop
     private void OnGlamourerStateFinalized(nint actorAddress)
     {
         StateFinalizedEventCount++;
-        NoteLocalPlayerProjectionSignal(actorAddress);
         _cachedPlayerState = null;
         _stateLastFetchedUtc = DateTime.MinValue;
-        OnStateFinalized?.Invoke(actorAddress);
         OnStateChanged?.Invoke();
-    }
-
-    public void ResetLoginProjectionTracking()
-    {
-        _localProjectionFirstSignalUtc = null;
-        _localProjectionSettled = false;
-    }
-
-    private void NoteLocalPlayerProjectionSignal(nint actorAddress)
-    {
-        if (!IsLocalPlayerAddress(actorAddress))
-            return;
-
-        _localProjectionFirstSignalUtc ??= DateTime.UtcNow;
-    }
-
-    private bool IsLocalPlayerAddress(nint actorAddress)
-    {
-        if (_objectTable == null || actorAddress == nint.Zero)
-            return false;
-
-        try
-        {
-            var localPlayer = _objectTable.LocalPlayer;
-            return localPlayer != null && localPlayer.IsValid() && localPlayer.Address == actorAddress;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>登录后是否允许通过 GetState 评估装备条件（避免在 Glamourer 投影完成前轮询 IPC）。</summary>
-    public bool IsEquipmentEvaluationAllowed(
-        DateTime? loginSinceUtc,
-        TimeSpan settleDelay,
-        TimeSpan fallbackDelay,
-        out string status)
-    {
-        status = "";
-
-        if (_localProjectionSettled)
-            return true;
-
-        if (_localProjectionFirstSignalUtc.HasValue)
-        {
-            var elapsed = DateTime.UtcNow - _localProjectionFirstSignalUtc.Value;
-            if (elapsed >= settleDelay)
-            {
-                _localProjectionSettled = true;
-                return true;
-            }
-
-            var remaining = settleDelay - elapsed;
-            status = $"Glamourer 装备状态稳定中 {remaining.TotalSeconds:F1}s";
-            return false;
-        }
-
-        if (loginSinceUtc.HasValue && DateTime.UtcNow - loginSinceUtc.Value >= fallbackDelay)
-        {
-            _localProjectionSettled = true;
-            return true;
-        }
-
-        status = "等待 Glamourer 本地投影";
-        return false;
     }
     
     private void OnGlamourerGPoseChanged(bool inGPose)
