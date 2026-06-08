@@ -1828,6 +1828,7 @@ internal sealed class PenumbraInterop
         string modDirectory,
         bool enabled,
         IReadOnlyDictionary<string, IReadOnlyList<string>> optionGroupOverrides,
+        bool mergeExistingTemporaryGroups,
         out PenumbraIpcEc result,
         out string error)
     {
@@ -1838,7 +1839,8 @@ internal sealed class PenumbraInterop
 
         var overrideKeys = new HashSet<string>(optionGroupOverrides.Keys, StringComparer.OrdinalIgnoreCase);
         var mergedOverrides = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
-        if (TryGetHeelsTemporaryModSettingsPlayer(playerObjectIndex, modDirectory, out var existingTemp))
+        if (mergeExistingTemporaryGroups
+            && TryGetHeelsTemporaryModSettingsPlayer(playerObjectIndex, modDirectory, out var existingTemp))
         {
             foreach (var (group, names) in existingTemp)
             {

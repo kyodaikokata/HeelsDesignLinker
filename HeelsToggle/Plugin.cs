@@ -781,6 +781,8 @@ namespace HeelsDesignLinker
         private IReadOnlyList<SoundMixerIpcGateProbe> soundMixerIpcGateProbes = [];
         private bool soundMixerOverridesActive = false;
         private bool penumbraTemporaryOverridesActive = false;
+        /// <summary>规则切换清临时层后，本周期 batch apply 勿合并旧 -1211 选项组（避免 A→B 同 Mod 残留）。</summary>
+        private bool penumbraApplyWithoutTempMerge;
         // private bool isCustomizePlusIpcReady = false;  // 已移除 Customize+ 支持
 
         private readonly PenumbraInterop _penumbraInterop;
@@ -1412,6 +1414,11 @@ namespace HeelsDesignLinker
                 lastAppliedMoodleKey = "";
                 lastApplyUtc = DateTime.MinValue;
             }
+            else if (lastMatchedRuleIndex >= 0)
+            {
+                // 规则 A → 规则 B：先清 -1211，再 apply；本周期 batch 禁止合并旧临时选项组
+                ClearPenumbraTemporaryOverrides(forceRemove: true);
+            }
 
             // 清除Honorific（如果新规则不需要）
             var hadHonorific = !string.IsNullOrEmpty(lastAppliedHonorificJson);
@@ -1582,9 +1589,8 @@ namespace HeelsDesignLinker
             var nowReady = IsReadyForWork();
             if (nowReady && !wasReady)
             {
-            }
-            else if (!nowReady && wasReady)
-            {
+                if (ConfigurationUsesPenumbra() && isPenumbraIpcReady)
+                    _penumbraInterop.RefreshData(force: true);
             }
         }
 
@@ -1650,6 +1656,11 @@ namespace HeelsDesignLinker
             loginSinceUtc = null;
             isLoginProtectionActive = false;
             ResetApplyState();
+            ResetPenumbraStatusDisplay();
+            soundMixerIpcLastReadyUtc = null;
+            soundMixerLoadedLastTrueUtc = null;
+            isSoundMixerIpcReady = false;
+            isSoundMixerLoaded = false;
         }
 
         private void ResetApplyState()
@@ -1659,7 +1670,9 @@ namespace HeelsDesignLinker
             baselineActionsAllowedAfterUtc = null;
             lastApplyUtc = DateTime.MinValue;
             ClearPenumbraApplyTracking();
-            ResetPenumbraStatusDisplay();
+            // 勿 ResetPenumbraStatusDisplay：会强制 isPenumbraIpcReady=false，中途启用插件后须等 Refresh 间隔或开面板才恢复
+            RefreshPenumbraDependencyState();
+            RefreshSoundMixerDependencyState();
             ClearSoundMixerTemporaryOverrides();
             ClearPenumbraTemporaryOverrides();
             lastAppliedHonorificJson = "";
@@ -2192,6 +2205,8 @@ namespace HeelsDesignLinker
                 loginSinceUtc = DateTime.UtcNow;
                 isLoginProtectionActive = true;
                 ResetApplyState();
+                // 插件在游戏内中途启用：立即重检依赖，避免等 2s 间隔或开面板后才 apply
+                RefreshDependencies(force: true);
             }
 
             var appearanceChanged = _appearanceChangeTracker.CheckChanged(
@@ -2416,9 +2431,9 @@ namespace HeelsDesignLinker
             soundMixerOverridesActive = false;
         }
 
-        private void ClearPenumbraTemporaryOverrides()
+        private void ClearPenumbraTemporaryOverrides(bool forceRemove = false)
         {
-            if (!penumbraTemporaryOverridesActive)
+            if (!forceRemove && !penumbraTemporaryOverridesActive)
                 return;
 
             var localPlayer = ObjectTable.LocalPlayer;
@@ -2429,6 +2444,7 @@ namespace HeelsDesignLinker
                 _penumbraInterop.TryRemoveAllHeelsTemporaryModSettingsPlayer(
                     localPlayer.ObjectIndex,
                     out _);
+                penumbraApplyWithoutTempMerge = true;
             }
 
             penumbraTemporaryOverridesActive = false;
@@ -3057,6 +3073,8 @@ namespace HeelsDesignLinker
         private bool ApplyPenumbraActionsForRule(HeelsRule rule, ref bool appliedAnything)
         {
             var configDirty = false;
+            try
+            {
             var penumbraActions = GetRuleActions(rule).Where(ActionUsesPenumbra).ToList();
             if (penumbraActions.Count == 0)
                 return false;
@@ -3159,6 +3177,11 @@ namespace HeelsDesignLinker
             }
 
             return configDirty;
+            }
+            finally
+            {
+                penumbraApplyWithoutTempMerge = false;
+            }
         }
 
         private void ApplyPenumbraRuleModOptionsBatchedTemporary(
@@ -3256,6 +3279,7 @@ namespace HeelsDesignLinker
                         modDirectory,
                         enabled: true,
                         optionOverrides,
+                        !penumbraApplyWithoutTempMerge,
                         out var batchResult,
                         out var batchError))
                 {

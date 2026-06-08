@@ -4,10 +4,23 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.3.0.3";
+        public const string CurrentVersion = "1.3.0.4";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.3.0.4",
+                "2026-06-07",
+                [
+                    "修复规则切换后上一规则临时启用的 Penumbra Mod 未被清除的问题",
+                    "规则切换后 batch apply 不再合并旧 -1211 选项组，避免同 Mod 残留设置",
+                    "修复游戏内中途启用插件后须打开配置面板 Penumbra 临时设置才生效的问题",
+                ],
+                [
+                    "Fix Penumbra mods auto-enabled by the previous rule staying on after a rule switch",
+                    "Skip merging stale -1211 option groups on rule switch batch apply",
+                    "Fix Penumbra temporary apply requiring the config window once after enabling the plugin in-game",
+                ]),
             new(
                 "1.3.0.3",
                 "2026-06-07",

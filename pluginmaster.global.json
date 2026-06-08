@@ -23,8 +23,8 @@
       "other"
     ],
     "DalamudApiLevel": 15,
-    "AssemblyVersion": "1.3.0.3",
-    "Changelog": "1.3.0.3: Action drag reorder; Penumbra active Collection default; DTR reload fix. See in-app changelog.",
+    "AssemblyVersion": "1.3.0.4",
+    "Changelog": "1.3.0.4: Rule-switch Penumbra temp cleanup; in-game enable apply fix. See in-app changelog.",
     "LastUpdate": "0",
     "RepoUrl": "https://github.com/kyodaikokata/HeelsDesignLinker",
     "DownloadLinkInstall": "https://raw.githubusercontent.com/kyodaikokata/KKT-Catalog/main/plugins/HeelsDesignLinker/latest-global.zip",
