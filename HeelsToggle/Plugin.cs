@@ -749,6 +749,11 @@ namespace HeelsDesignLinker
         private int? _conditionDragSourceGroupIndex;
         private int? _conditionDragSourceIndex;
         private int? _conditionDragTargetIndex;
+
+        // 规则内行动拖拽排序相关
+        private int? _actionDragSourceRuleIndex;
+        private int? _actionDragSourceIndex;
+        private int? _actionDragTargetIndex;
         
         // 条件删除相关
         private int conditionToDeleteRuleIndex = -1;
@@ -1129,19 +1134,32 @@ namespace HeelsDesignLinker
         private bool RuleUsesPenumbra(HeelsRule rule) =>
             GetRuleActions(rule).Any(ActionUsesPenumbra);
 
-        private HeelsRuleAction CreateDefaultRuleActionForType(ActionType actionType) =>
-            actionType switch
+        private string GetActivePenumbraCollectionName() =>
+            _penumbraInterop.GetDefaultCollectionName(GetLocalPlayerObjectIndex());
+
+        private void ApplyActivePenumbraCollectionDefault(HeelsRuleAction action)
+        {
+            if (action.Type != ActionType.Penumbra)
+                return;
+
+            action.PenumbraCollection = GetActivePenumbraCollectionName();
+        }
+
+        private HeelsRuleAction CreateDefaultRuleActionForType(ActionType actionType)
+        {
+            var action = actionType switch
             {
                 ActionType.Glamourer => new HeelsRuleAction { Type = ActionType.Glamourer },
-                ActionType.Penumbra => new HeelsRuleAction
-                {
-                    Type = ActionType.Penumbra,
-                    PenumbraCollection = _penumbraInterop.GetDefaultCollectionName(GetLocalPlayerObjectIndex()),
-                },
+                ActionType.Penumbra => new HeelsRuleAction { Type = ActionType.Penumbra },
+                ActionType.Honorific => new HeelsRuleAction { Type = ActionType.Honorific },
+                ActionType.Moodles => new HeelsRuleAction { Type = ActionType.Moodles },
                 ActionType.SoundMixer => new HeelsRuleAction { Type = ActionType.SoundMixer },
-                // ActionType.CustomizePlus => new HeelsRuleAction { Type = ActionType.CustomizePlus },  // 已移除
                 _ => new HeelsRuleAction { Type = ActionType.Glamourer },
             };
+
+            ApplyActivePenumbraCollectionDefault(action);
+            return action;
+        }
 
         private static HeelsRule CreateEmptyRule() => new()
         {
@@ -4219,6 +4237,9 @@ namespace HeelsDesignLinker
             {
                 _ruleDragSourceIndex = null;
                 _ruleDragTargetIndex = null;
+                _actionDragSourceRuleIndex = null;
+                _actionDragSourceIndex = null;
+                _actionDragTargetIndex = null;
                 restoreDefaultsPending = false;
                 wasSettingsTabActive = false;
                 return;
@@ -5954,9 +5975,8 @@ namespace HeelsDesignLinker
                 var condition = conditions[i];
                 
                 // 拖拽手柄
-                if (ImGui.Button(": :"))
+                if (ImGui.Button(Localization.RuleDragHandle))
                 {
-                    // 按钮作为拖拽手柄
                 }
                 
                 if (ImGui.IsItemHovered())
@@ -6273,6 +6293,70 @@ namespace HeelsDesignLinker
                 return Localization.EquipmentOnlySummary;
             else
                 return Localization.EmptyConditionGroupsSummary;
+        }
+
+        private void UpdateActionDragTarget(int ruleIndex, int actionIndex)
+        {
+            if (_actionDragSourceRuleIndex != ruleIndex
+                || !_actionDragSourceIndex.HasValue
+                || !ImGui.IsMouseDown(ImGuiMouseButton.Left))
+                return;
+
+            var mousePos = ImGui.GetIO().MousePos;
+            var rowMin = ImGui.GetItemRectMin();
+            var rowMax = ImGui.GetItemRectMax();
+            rowMax.X = ImGui.GetContentRegionMax().X;
+
+            if (mousePos.X < rowMin.X || mousePos.X > rowMax.X
+                || mousePos.Y < rowMin.Y || mousePos.Y > rowMax.Y)
+            {
+                return;
+            }
+
+            _actionDragTargetIndex = actionIndex;
+        }
+
+        private void ProcessActionDragReorder(int ruleIndex)
+        {
+            if (_actionDragSourceRuleIndex != ruleIndex || !_actionDragSourceIndex.HasValue)
+                return;
+
+            if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
+            {
+                ImGui.SetTooltip(Localization.MovingAction(_actionDragSourceIndex.Value));
+                return;
+            }
+
+            if (_actionDragTargetIndex.HasValue
+                && _actionDragSourceIndex.Value != _actionDragTargetIndex.Value)
+            {
+                ReorderRuleAction(ruleIndex, _actionDragSourceIndex.Value, _actionDragTargetIndex.Value);
+            }
+
+            _actionDragSourceRuleIndex = null;
+            _actionDragSourceIndex = null;
+            _actionDragTargetIndex = null;
+        }
+
+        private void ReorderRuleAction(int ruleIndex, int fromIndex, int toIndex)
+        {
+            if (ruleIndex < 0 || ruleIndex >= ActiveRules.Count)
+                return;
+
+            EnsureRuleHasActions(ruleIndex);
+            var actions = ActiveRules[ruleIndex].Actions;
+            if (fromIndex < 0 || toIndex < 0
+                || fromIndex >= actions.Count
+                || toIndex >= actions.Count
+                || fromIndex == toIndex)
+            {
+                return;
+            }
+
+            var action = actions[fromIndex];
+            actions.RemoveAt(fromIndex);
+            actions.Insert(toIndex, action);
+            SaveConfig();
         }
 
         private void ReorderCondition(int ruleIndex, int groupIndex, int fromIndex, int toIndex)
@@ -6714,11 +6798,39 @@ namespace HeelsDesignLinker
                     break;
             }
 
+            ProcessActionDragReorder(ruleIndex);
+
             if (ImGui.SmallButton($"{Localization.AddRuleAction}##Rule{ruleIndex}"))
+                ImGui.OpenPopup($"AddActionPopup_{ruleIndex}");
+
+            DrawAddRuleActionPopup(ruleIndex, actions);
+        }
+
+        private void DrawAddRuleActionPopup(int ruleIndex, List<HeelsRuleAction> actions)
+        {
+            if (!ImGui.BeginPopup($"AddActionPopup_{ruleIndex}"))
+                return;
+
+            foreach (var actionType in new[]
+                     {
+                         ActionType.Glamourer,
+                         ActionType.Penumbra,
+                         ActionType.Honorific,
+                         ActionType.Moodles,
+                         ActionType.SoundMixer,
+                     })
             {
-                actions.Add(CreateDefaultRuleAction());
-                SaveConfig();
+                ImGui.PushStyleColor(ImGuiCol.Text, GetActionTypeTextColor(actionType));
+                if (ImGui.Selectable(Localization.ActionTypeLabel(actionType)))
+                {
+                    actions.Add(CreateDefaultRuleActionForType(actionType));
+                    SaveConfig();
+                    ImGui.CloseCurrentPopup();
+                }
+                ImGui.PopStyleColor();
             }
+
+            ImGui.EndPopup();
         }
 
         private void DrawRuleActionRow(
@@ -6730,6 +6842,7 @@ namespace HeelsDesignLinker
             out bool deleted)
         {
             deleted = false;
+            var canReorder = canDelete;
             
             var hasFeet = action.Type == ActionType.Glamourer && DoesGlamourerDesignHaveFeet(action.GlamourerDesign);
             var hasPenumbraConflict = penumbraConflictHints.TryGetValue(actionIndex, out var penumbraConflictHint);
@@ -6740,6 +6853,46 @@ namespace HeelsDesignLinker
             var contentWidth = ImGui.GetContentRegionAvail().X;
             
             ImGui.AlignTextToFramePadding();
+
+            if (canReorder)
+            {
+                if (ImGui.Button($"{Localization.RuleDragHandle}##ActionDrag{ruleIndex}_{actionIndex}"))
+                {
+                }
+
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip(Localization.DragToReorderActions);
+
+                if (ImGui.IsItemActive() && ImGui.IsMouseDragging(ImGuiMouseButton.Left))
+                {
+                    if (!_actionDragSourceIndex.HasValue)
+                    {
+                        _actionDragSourceRuleIndex = ruleIndex;
+                        _actionDragSourceIndex = actionIndex;
+                    }
+                }
+
+                UpdateActionDragTarget(ruleIndex, actionIndex);
+
+                if (_actionDragSourceRuleIndex == ruleIndex
+                    && _actionDragSourceIndex.HasValue
+                    && _actionDragTargetIndex == actionIndex
+                    && _actionDragSourceIndex != actionIndex)
+                {
+                    var rowMin = ImGui.GetItemRectMin();
+                    var rowMax = ImGui.GetItemRectMax();
+                    rowMax.X = ImGui.GetContentRegionMax().X;
+                    ImGui.GetWindowDrawList().AddRect(
+                        rowMin,
+                        rowMax,
+                        ImGui.GetColorU32(ImGuiCol.DragDropTarget),
+                        0f,
+                        0,
+                        2f);
+                }
+
+                ImGui.SameLine();
+            }
 
             var expanded = !action.IsActionCollapsed;
             if (ImGui.ArrowButton(
@@ -7427,10 +7580,7 @@ namespace HeelsDesignLinker
             if (ImGui.Selectable(Localization.ActionTypeLabel(type), action.Type == type))
             {
                 action.Type = type;
-                if (type == ActionType.Penumbra)
-                {
-                    action.PenumbraCollection = _penumbraInterop.GetDefaultCollectionName(GetLocalPlayerObjectIndex());
-                }
+                ApplyActivePenumbraCollectionDefault(action);
                 SaveConfig();
             }
             ImGui.PopStyleColor();

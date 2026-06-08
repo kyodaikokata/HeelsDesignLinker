@@ -4,10 +4,23 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.3.0.2";
+        public const string CurrentVersion = "1.3.0.3";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.3.0.3",
+                "2026-06-07",
+                [
+                    "规则内行动支持 : : 拖拽排序",
+                    "添加行动改为类型菜单；新建 Penumbra 行动默认选中当前激活的 Collection",
+                    "修复 DTR 状态栏在插件重载时重复注册导致报错",
+                ],
+                [
+                    "Drag-reorder actions within a rule via : : handle",
+                    "Add-action menu by type; new Penumbra actions default to the active Collection",
+                    "Fix DTR status bar crash when the entry already exists after plugin reload",
+                ]),
             new(
                 "1.3.0.2",
                 "2026-06-07",

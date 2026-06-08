@@ -790,6 +790,7 @@ namespace HeelsDesignLinker
 
         // 条件 / 行动编辑
         public static string DragToReorderConditions => IsChine ? "拖动以调整顺序" : "Drag to reorder";
+        public static string DragToReorderActions => IsChine ? "拖动以调整行动顺序" : "Drag to reorder actions";
         public static string DeleteThisCondition => IsChine ? "删除此条件" : "Delete this condition";
         public static string ConfirmDeleteCondition => IsChine ? "确认删除此条件？" : "Delete this condition?";
         public static string AddNewConditionTooltip => IsChine ? "添加新条件" : "Add new condition";
@@ -833,6 +834,9 @@ namespace HeelsDesignLinker
         public static string MovingCondition(int index) => IsChine
             ? $"移动条件 {index + 1}"
             : $"Moving condition {index + 1}";
+        public static string MovingAction(int index) => IsChine
+            ? $"移动行动 {index + 1}"
+            : $"Moving action {index + 1}";
         public static string CustomizePlusRemovedTooltip => IsChine
             ? "Customize+ 不提供所需的 IPC 方法，暂时无法支持。\n如需使用 Customize+ 配置，请直接在 Customize+ 插件中管理。"
             : "Customize+ does not provide required IPC methods.\nPlease manage profiles directly in Customize+ plugin.";
