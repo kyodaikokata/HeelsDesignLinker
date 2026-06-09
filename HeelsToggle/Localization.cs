@@ -40,8 +40,8 @@ namespace HeelsDesignLinker
         
         // 命令帮助
         public static string CommandHelp => IsChine 
-            ? "打开 Heels Design Linker 配置" 
-            : "Open Heels Design Linker configuration";
+            ? "打开配置；/hdl sfw 启用 SFW；/hdl nsfw 关闭 SFW" 
+            : "Open settings; /hdl sfw enables SFW; /hdl nsfw disables SFW";
         
         // 窗口标题
         public static string WindowTitle => $"{PluginName} v{Changelog.CurrentVersion}";
@@ -70,7 +70,79 @@ namespace HeelsDesignLinker
         
         // 标签页
         public static string TabRules => IsChine ? "规则" : "Rules";
+        public static string TabSfwMode => IsChine ? "SFW 模式" : "SFW Mode";
         public static string TabSettings => IsChine ? "设置" : "Settings";
+
+        public static string SfwModeTabDescription => IsChine
+            ? "全局 SFW 模式：激活后按下方 Penumbra 行动覆盖规则层（独立临时 key -1210，在规则 -1211 之后 apply）。与规则中相同 Mod 的行动将被拦截，关闭 SFW 后会重新 apply 规则。"
+            : "Global SFW mode: when active, Penumbra actions below overlay the rule layer (separate temp key -1210, applied after rules -1211). Rule actions on the same mod are skipped; disabling SFW re-applies rules.";
+
+        public static string SfwModeActiveLabel => IsChine ? "SFW 模式已激活" : "SFW mode active";
+        public static string SfwModeActiveTooltip => IsChine
+            ? "开启后应用下方行动列表；关闭时清除 SFW 临时层并重新 apply 被拦截的规则 Penumbra 行动。"
+            : "When on, applies the action list below; when off, clears the SFW temp layer and re-applies rule Penumbra actions that were skipped.";
+
+        public static string SfwModeToggleLabel => IsChine ? "SFW" : "SFW";
+        public static string SfwModeToggleTooltip => SfwModeActiveTooltip;
+
+        public static string SfwModeRequiresTemporaryApply => IsChine
+            ? "SFW 模式需要开启「临时写入模式」（见设置页 Penumbra）。"
+            : "SFW mode requires Temporary apply mode (see Penumbra settings).";
+
+        public static string SfwImportModSettings => IsChine ? "导入 Mod 设置" : "Import mod settings";
+        public static string SfwImportModSettingsTooltip => IsChine
+            ? "在 Penumbra 窗口中选中一个 Mod 后点击，从当前角色的激活 Collection 读取该 Mod 的生效设置并生成行动列表（同 Mod 再次导入会覆盖旧条目）。"
+            : "Select a mod in Penumbra, then click to import its effective settings from your active collection (re-import replaces entries for that mod).";
+
+        public static string SfwImportSelectedMod(string modDirectory) => IsChine
+            ? $"Penumbra 当前选中：{modDirectory}"
+            : $"Penumbra selected: {modDirectory}";
+
+        public static string SfwImportNoSelectedModHint => IsChine
+            ? "请在 Penumbra 窗口中选中一个 Mod（打开 Mod 页并点击列表中的 Mod）。"
+            : "Select a mod in Penumbra (Mods tab, click a mod in the list).";
+
+        public static string SfwImportCurrentCollection(string collection) => IsChine
+            ? $"Penumbra 当前 Collection：{collection}"
+            : $"Penumbra current collection: {collection}";
+
+        public static string SfwImportSuccess(string collection, string modDirectory, int actionCount) => IsChine
+            ? $"已导入 [{collection}] {modDirectory}：{actionCount} 条行动"
+            : $"Imported [{collection}] {modDirectory}: {actionCount} action(s)";
+
+        public static string PenumbraActionGroupTitle(string collection, string modLabel) => IsChine
+            ? $"Penumbra 行动组 · [{collection}] {modLabel}"
+            : $"Penumbra group · [{collection}] {modLabel}";
+
+        public static string PenumbraActionGroupSummary(string collection, string modLabel, int subActionCount) => IsChine
+            ? $"[{collection}] {modLabel} · {subActionCount} 条子行动"
+            : $"[{collection}] {modLabel} · {subActionCount} sub-action(s)";
+
+        public static string PenumbraActionGroupCollapseTooltip => IsChine
+            ? "折叠 / 展开 Penumbra 行动组"
+            : "Collapse / expand Penumbra action group";
+
+        public static string DeletePenumbraActionGroup => IsChine ? "删除组" : "Delete group";
+        public static string DeletePenumbraActionGroupTooltip => IsChine
+            ? "删除此 Penumbra 行动组及其全部子行动"
+            : "Delete this Penumbra group and all sub-actions";
+
+        public static string AddPenumbraActionGroup => IsChine ? "+ 添加 Penumbra 行动组" : "+ Add Penumbra group";
+        public static string AddPenumbraSubAction => IsChine ? "+ 添加子行动" : "+ Add sub-action";
+
+        public static string SfwImportNoActions => IsChine
+            ? "该 Mod 无可用设置可导入"
+            : "No settings to import for this mod";
+
+        public static string SfwModeActionsEmpty => IsChine
+            ? "列表为空，请添加 Penumbra 行动组"
+            : "List is empty — add a Penumbra action group";
+
+        public static string DtrSfwBarActive => IsChine ? "SFW 开" : "SFW On";
+        public static string DtrSfwBarInactive => IsChine ? "SFW 关" : "SFW Off";
+        public static string DtrSfwBarTooltip => IsChine
+            ? "点击切换 SFW / NSFW 模式"
+            : "Click to toggle SFW / NSFW mode";
         public static string TabDebug => IsChine ? "调试" : "Debug";
         public static string TabChangelog => IsChine ? "更新履历" : "Changelog";
         public static string ChangelogVersion => IsChine ? "版本" : "Version";

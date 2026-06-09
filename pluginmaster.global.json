@@ -23,8 +23,8 @@
       "other"
     ],
     "DalamudApiLevel": 15,
-    "AssemblyVersion": "1.3.0.4",
-    "Changelog": "1.3.0.4: Rule-switch Penumbra temp cleanup; in-game enable apply fix. See in-app changelog.",
+    "AssemblyVersion": "1.4.0.0",
+    "Changelog": "1.4.0.0: Global SFW mode (Penumbra temp layer -1210). See in-app changelog.",
     "LastUpdate": "0",
     "RepoUrl": "https://github.com/kyodaikokata/HeelsDesignLinker",
     "DownloadLinkInstall": "https://raw.githubusercontent.com/kyodaikokata/KKT-Catalog/main/plugins/HeelsDesignLinker/latest-global.zip",

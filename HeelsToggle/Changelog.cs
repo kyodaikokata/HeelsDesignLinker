@@ -4,10 +4,27 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.3.0.4";
+        public const string CurrentVersion = "1.4.0.0";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.0.0",
+                "2026-06-07",
+                [
+                    "新增全局 SFW 模式：独立「SFW 模式」标签页，可设置模组状态与详细选项",
+                    "SFW 使用独立临时层 key -1210（在规则 -1211 之后 apply）；与 SFW 列表相同 Mod 的规则 Penumbra 行动会被拦截",
+                    "关闭 SFW（/hdl nsfw 或界面切换）清除 -1210 并强制重新 apply 规则 Penumbra",
+                    "主界面与 DTR「HDL SFW」一键切换；/hdl sfw 启用 SFW",
+                    "SfwModeActive 写入配置持久化",
+                ],
+                [
+                    "Global SFW mode: dedicated tab; allows setting mod activation and options",
+                    "SFW uses separate temp key -1210 (applied after rules -1211); rule Penumbra on the same mod is skipped",
+                    "Disabling SFW (/hdl nsfw or UI) clears -1210 and forces rule Penumbra re-apply",
+                    "Main panel and DTR \"HDL SFW\" one-click toggle; /hdl sfw enables SFW",
+                    "SfwModeActive persisted in config",
+                ]),
             new(
                 "1.3.0.4",
                 "2026-06-07",

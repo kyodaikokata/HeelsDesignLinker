@@ -48,6 +48,8 @@ internal sealed class PenumbraInterop
     private const string GetAvailableModSettingsGate = "Penumbra.GetAvailableModSettings.V5";
     private const string GetCurrentModSettingsGate = "Penumbra.GetCurrentModSettings.V5";
     private const string GetCurrentModSettingsWithTempGate = "Penumbra.GetCurrentModSettingsWithTemp";
+    private const string GetAllModSettingsGate = "Penumbra.GetAllModSettings";
+    private const string GetSettingsInAllCollectionsGate = "Penumbra.GetSettingsInAllCollections";
     private const string TrySetModGate = "Penumbra.TrySetMod.V5";
     private const string TrySetModSettingGate = "Penumbra.TrySetModSetting.V5";
     private const string TrySetModSettingsGate = "Penumbra.TrySetModSettings.V5";
@@ -68,11 +70,11 @@ internal sealed class PenumbraInterop
     }
 
     /// <summary>与 Penumbra.Api.Enums.ApiCollectionType 数值一致。</summary>
-    private enum PenumbraApiCollectionType
+    private enum PenumbraApiCollectionType : byte
     {
-        Default = 0,
-        Interface = 1,
-        Current = 2,
+        Default = 0xE0,
+        Interface = 0xE1,
+        Current = 0xE2,
     }
 
     /// <summary>Glamourer 自动化临时设置的 Lock Key（与 Glamourer 源码一致）。</summary>
@@ -87,10 +89,25 @@ internal sealed class PenumbraInterop
     /// <summary>HeelsDesignLinker 临时 Penumbra 设置的 Source 显示名。</summary>
     internal const string HeelsDesignLinkerPenumbraSource = "HeelsDesignLinker";
 
+    /// <summary>SFW 模式临时 Penumbra 设置的 Lock Key（独立于规则层 -1211）。</summary>
+    internal const int SfwModePenumbraLockKey = -1210;
+
+    /// <summary>SFW 模式临时 Penumbra 设置的 Source 显示名。</summary>
+    internal const string SfwModePenumbraSource = "HeelsDesignLinker-SFW";
+
+    internal enum PenumbraTempLayer
+    {
+        HeelsRule,
+        SfwMode,
+    }
+
     private readonly IDalamudPluginInterface _pluginInterface;
 
-    /// <summary>为 true 时读取含临时层（key <see cref="HeelsDesignLinkerPenumbraLockKey"/>）的生效设置。</summary>
+    /// <summary>为 true 时读取含临时层的生效设置（key 见 <see cref="TemporarySettingsReadKey"/>）。</summary>
     internal bool ReadIncludingTemporarySettings { get; set; }
+
+    /// <summary>WithTemp / QueryTemporary 读取与比对使用的 lock key（规则 -1211 或 SFW -1210）。</summary>
+    internal int TemporarySettingsReadKey { get; set; } = HeelsDesignLinkerPenumbraLockKey;
     private List<string> _collectionNames = [];
     private List<PenumbraModEntry> _mods = [];
     private Dictionary<string, Dictionary<string, PenumbraOptionGroupInfo>> _modSettingsByDirectory =
@@ -107,14 +124,124 @@ internal sealed class PenumbraInterop
     private Dictionary<string, string>? _modFilesystemPathCache;
     private DateTime _modPathCacheUtc = DateTime.MinValue;
 
+    private string? _penumbraUiSelectedModDirectory;
+    private Action<string>? _penumbraUiSelectedModHandler;
+    private readonly List<(string Gate, Action<string> Handler)> _penumbraUiSelectedModSubscriptions = [];
+
     public PenumbraInterop(IDalamudPluginInterface pluginInterface)
     {
         _pluginInterface = pluginInterface;
+        EnsureUiSelectedModSubscription();
     }
 
     public void Dispose()
     {
-        // Cleanup if needed
+        foreach (var (gate, handler) in _penumbraUiSelectedModSubscriptions)
+        {
+            try
+            {
+                _pluginInterface.GetIpcSubscriber<string, object>(gate).Unsubscribe(handler);
+            }
+            catch
+            {
+                // Penumbra 可能已卸载
+            }
+        }
+
+        _penumbraUiSelectedModSubscriptions.Clear();
+        _penumbraUiSelectedModHandler = null;
+    }
+
+    /// <summary>订阅 Penumbra UI 事件以跟踪用户在 Penumbra 窗口中选中的 Mod 目录名。</summary>
+    public void EnsureUiSelectedModSubscription()
+    {
+        if (_penumbraUiSelectedModHandler != null)
+            return;
+
+        _penumbraUiSelectedModHandler = RememberPenumbraUiSelectedMod;
+
+        foreach (var gate in new[]
+                 {
+                     "Penumbra.PreSettingsDraw",
+                     "Penumbra.PostSettingsDraw",
+                     "Penumbra.PostEnabledDraw",
+                 })
+        {
+            TrySubscribePenumbraUiModEvent(gate, _penumbraUiSelectedModHandler);
+        }
+    }
+
+    private void RememberPenumbraUiSelectedMod(string modDirectory)
+    {
+        if (!string.IsNullOrWhiteSpace(modDirectory))
+            _penumbraUiSelectedModDirectory = modDirectory.Trim();
+    }
+
+    private void TrySubscribePenumbraUiModEvent(string gate, Action<string> handler)
+    {
+        try
+        {
+            _pluginInterface.GetIpcSubscriber<string, object>(gate).Subscribe(handler);
+            _penumbraUiSelectedModSubscriptions.Add((gate, handler));
+        }
+        catch
+        {
+            // 旧版 Penumbra 可能无此事件
+        }
+    }
+
+    public bool TryGetPenumbraUiSelectedModDirectory(out string modDirectory)
+    {
+        modDirectory = _penumbraUiSelectedModDirectory ?? "";
+        return !string.IsNullOrWhiteSpace(modDirectory);
+    }
+
+    /// <summary>读取 collection 内 Mod 的生效设置（不含临时层），用于从 Penumbra UI 导入。</summary>
+    public bool TryGetCollectionModConfigurationForImport(
+        string collectionName,
+        string modDirectory,
+        out bool modEnabled,
+        out IReadOnlyDictionary<string, List<string>> settingsByGroup,
+        out string error)
+    {
+        modEnabled = false;
+        settingsByGroup = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        error = "";
+
+        if (!TryResolveCollectionId(collectionName, out var collectionId, out error))
+            return false;
+
+        if (string.IsNullOrWhiteSpace(modDirectory))
+        {
+            error = "Mod not selected";
+            return false;
+        }
+
+        var modName = ResolveModDisplayName(modDirectory);
+        try
+        {
+            var subscriber = _pluginInterface.GetIpcSubscriber<
+                Guid, string, string, bool, bool, int, object>(
+                GetCurrentModSettingsWithTempGate);
+            var raw = subscriber.InvokeFunc(
+                collectionId,
+                modDirectory.Trim(),
+                modName,
+                false,
+                true,
+                0);
+
+            if (!TryParseCurrentModConfiguration(raw, out modEnabled, out var settings, out error))
+                return false;
+
+            settingsByGroup = settings;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"读取 Penumbra 当前设置失败: {ex.Message}";
+            return false;
+        }
     }
 
     public static bool IsPenumbraLoaded(IDalamudPluginInterface pluginInterface)
@@ -360,6 +487,16 @@ internal sealed class PenumbraInterop
     /// <summary>当前生效的 Penumbra Collection 名称；失败时返回 "Default"。</summary>
     public string GetDefaultCollectionName(int? playerObjectIndex = null) =>
         TryGetActiveCollectionName(playerObjectIndex, out var name) ? name : "Default";
+
+    /// <summary>Penumbra UI 中当前正在编辑的 Collection（Collections 页选中项）。</summary>
+    public bool TryGetPenumbraUiCurrentCollectionName(out string collectionName)
+    {
+        if (TryGetCollectionNameByType(PenumbraApiCollectionType.Current, out collectionName)
+            && !string.IsNullOrWhiteSpace(collectionName))
+            return true;
+
+        return TryGetActiveCollectionName(null, out collectionName);
+    }
 
     /// <summary>尝试读取本地玩家当前生效的 Collection 名称。</summary>
     public bool TryGetActiveCollectionName(int? playerObjectIndex, out string collectionName)
@@ -865,7 +1002,7 @@ internal sealed class PenumbraInterop
                     modName,
                     false,
                     false,
-                    HeelsDesignLinkerPenumbraLockKey);
+                    TemporarySettingsReadKey);
             }
             else
             {
@@ -900,14 +1037,103 @@ internal sealed class PenumbraInterop
         if (!TryGetCurrentModConfiguration(collectionName, modDirectory, out _, out var settingsByGroup, out error))
             return false;
 
-        if (!settingsByGroup.TryGetValue(optionGroupName.Trim(), out var optionNames))
-            return true;
+        if (!TryGetGroupOptionNames(settingsByGroup, optionGroupName, out var optionNames))
+            return false;
 
         enabledOptionNames = optionNames
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         return true;
+    }
+
+    /// <summary>读取 Collection 持久设置中某选项组的已启用项（不含任何临时层）。</summary>
+    public bool TryGetCollectionEnabledOptions(
+        string collectionName,
+        string modDirectory,
+        string optionGroupName,
+        out IReadOnlyList<string> enabledOptionNames,
+        out string error)
+    {
+        enabledOptionNames = [];
+        error = "";
+
+        if (!TryGetCollectionModConfigurationForImport(
+                collectionName,
+                modDirectory,
+                out _,
+                out var settingsByGroup,
+                out error))
+            return false;
+
+        if (!TryGetGroupOptionNames(settingsByGroup, optionGroupName, out var optionNames))
+            return false;
+
+        enabledOptionNames = optionNames
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return true;
+    }
+
+    /// <summary>读取指定临时 key 下的生效选项（用于 multi-toggle delta 与比对）。</summary>
+    public bool TryGetEffectiveEnabledOptionsForLayer(
+        string collectionName,
+        string modDirectory,
+        string optionGroupName,
+        int tempReadKey,
+        out IReadOnlyList<string> enabledOptionNames,
+        out string error)
+    {
+        enabledOptionNames = [];
+        error = "";
+
+        if (!TryResolveCollectionId(collectionName, out var collectionId, out error))
+            return false;
+
+        if (string.IsNullOrWhiteSpace(modDirectory))
+        {
+            error = "Mod not selected";
+            return false;
+        }
+
+        var modName = ResolveModDisplayName(modDirectory);
+        try
+        {
+            var subscriber = _pluginInterface.GetIpcSubscriber<
+                Guid, string, string, bool, bool, int, (int, (bool, int, IReadOnlyDictionary<string, IReadOnlyList<string>>, bool, bool)?)>(
+                GetCurrentModSettingsWithTempGate);
+            var (ec, settingsTuple) = subscriber.InvokeFunc(
+                collectionId,
+                modDirectory.Trim(),
+                modName,
+                false,
+                false,
+                tempReadKey);
+
+            if (!IsPenumbraIpcSuccess((PenumbraIpcEc)ec) || settingsTuple is not { } tuple)
+                return false;
+
+            var settingsByGroup = tuple.Item3
+                .ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value.ToList(),
+                    StringComparer.OrdinalIgnoreCase);
+
+            if (!TryGetGroupOptionNames(settingsByGroup, optionGroupName, out var optionNames))
+                return false;
+
+            enabledOptionNames = optionNames
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"读取 Penumbra 当前设置失败: {ex.Message}";
+            return false;
+        }
     }
 
     /// <summary>
@@ -963,9 +1189,21 @@ internal sealed class PenumbraInterop
         object? raw,
         out bool modEnabled,
         out Dictionary<string, List<string>> settingsByGroup,
+        out string error) =>
+        TryParseCurrentModSettingsIpcRaw(raw, out modEnabled, out _, out settingsByGroup, out error);
+
+    /// <summary>
+    /// 解析 GetCurrentModSettings* 返回值：(PenumbraApiEc, (enabled, priority, settings, inherit)?)。
+    /// </summary>
+    private static bool TryParseCurrentModSettingsIpcRaw(
+        object? raw,
+        out bool modEnabled,
+        out int modPriority,
+        out Dictionary<string, List<string>> settingsByGroup,
         out string error)
     {
         modEnabled = false;
+        modPriority = 0;
         settingsByGroup = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         error = "";
 
@@ -986,22 +1224,68 @@ internal sealed class PenumbraInterop
         if (payload == null)
             return true;
 
-        if (TryGetNamedTupleMembers(payload, out var enabledItem, out _, out var settingsItem))
+        if (!TryGetNamedTupleMembers(payload, out var enabledItem, out var priorityItem, out var settingsItem))
         {
-            modEnabled = enabledItem switch
-            {
-                bool enabled => enabled,
-                null => false,
-                _ => Convert.ToBoolean(enabledItem),
-            };
-
-            if (settingsItem != null)
-                ExtractSettingsDictionary(settingsItem, settingsByGroup);
-            return true;
+            TryExtractPriorityFromTuplePayload(payload, out modPriority);
+            return TryParseCurrentModSettings(payload, out settingsByGroup, out error);
         }
 
-        return TryParseCurrentModSettings(raw, out settingsByGroup, out error);
+        modEnabled = enabledItem switch
+        {
+            bool enabled => enabled,
+            null => false,
+            _ => Convert.ToBoolean(enabledItem),
+        };
+
+        TryConvertPenumbraPriority(priorityItem, out modPriority);
+
+        if (settingsItem != null)
+            ExtractSettingsDictionary(settingsItem, settingsByGroup);
+
+        return true;
     }
+
+    private static bool TryConvertPenumbraPriority(object? value, out int priority)
+    {
+        priority = 0;
+        if (value == null)
+            return false;
+
+        switch (value)
+        {
+            case int i:
+                priority = i;
+                return true;
+            case long l:
+                priority = (int)l;
+                return true;
+            case byte or short or sbyte or ushort or uint:
+                priority = Convert.ToInt32(value);
+                return true;
+        }
+
+        var type = value.GetType();
+        var valueProperty = type.GetProperty("Value", BindingFlags.Public | BindingFlags.Instance);
+        if (valueProperty != null)
+        {
+            var inner = valueProperty.GetValue(value);
+            if (inner != null && TryConvertPenumbraPriority(inner, out priority))
+                return true;
+        }
+
+        var valueField = type.GetField("Value", BindingFlags.Public | BindingFlags.Instance);
+        if (valueField != null)
+        {
+            var inner = valueField.GetValue(value);
+            if (inner != null && TryConvertPenumbraPriority(inner, out priority))
+                return true;
+        }
+
+        return int.TryParse(value.ToString(), out priority);
+    }
+
+    private static string NormalizePenumbraCollectionName(string? collectionName) =>
+        string.IsNullOrWhiteSpace(collectionName) ? "Default" : collectionName.Trim();
 
     private static void ExtractSettingsDictionary(
         object value,
@@ -1142,35 +1426,24 @@ internal sealed class PenumbraInterop
         item2 = null;
         item3 = null;
 
-        if (value is JObject obj)
-        {
-            item1 = obj["Item1"] ?? obj["item1"] ?? obj["m_Item1"];
-            item2 = obj["Item2"] ?? obj["item2"] ?? obj["m_Item2"];
-            item3 = obj["Item3"] ?? obj["item3"] ?? obj["m_Item3"];
+        if (value == null)
+            return false;
+
+        if (TryGetTupleItemAt(value, 1, out item1)
+            | TryGetTupleItemAt(value, 2, out item2)
+            | TryGetTupleItemAt(value, 3, out item3))
             return item1 != null || item2 != null || item3 != null;
-        }
 
-        if (value is IDictionary dict && value is not string)
-        {
-            item1 = GetDictionaryValue(dict, "Item1", "item1", "m_Item1");
-            item2 = GetDictionaryValue(dict, "Item2", "item2", "m_Item2");
-            item3 = GetDictionaryValue(dict, "Item3", "item3", "m_Item3");
-            if (item1 != null || item2 != null || item3 != null)
-                return true;
-        }
+        return false;
+    }
 
-        var type = value?.GetType();
-        if (type == null)
+    private static bool TryExtractPriorityFromTuplePayload(object? payload, out int priority)
+    {
+        priority = 0;
+        if (!TryGetTupleItemAt(payload, 2, out var priorityItem))
             return false;
 
-        var item1Field = type.GetField("Item1", BindingFlags.Public | BindingFlags.Instance);
-        if (item1Field == null)
-            return false;
-
-        item1 = item1Field.GetValue(value);
-        item2 = type.GetField("Item2", BindingFlags.Public | BindingFlags.Instance)?.GetValue(value);
-        item3 = type.GetField("Item3", BindingFlags.Public | BindingFlags.Instance)?.GetValue(value);
-        return true;
+        return TryConvertPenumbraPriority(priorityItem, out priority);
     }
 
     private static bool TryUnwrapIpcResult(object raw, out object? payload, out object? resultCode)
@@ -1761,7 +2034,13 @@ internal sealed class PenumbraInterop
         return false;
     }
 
-    public bool TryRemoveAllHeelsTemporaryModSettingsPlayer(int playerObjectIndex, out string message)
+    public bool TryRemoveAllHeelsTemporaryModSettingsPlayer(int playerObjectIndex, out string message) =>
+        TryRemoveAllTemporaryModSettingsPlayer(playerObjectIndex, HeelsDesignLinkerPenumbraLockKey, out message);
+
+    public bool TryRemoveAllSfwTemporaryModSettingsPlayer(int playerObjectIndex, out string message) =>
+        TryRemoveAllTemporaryModSettingsPlayer(playerObjectIndex, SfwModePenumbraLockKey, out message);
+
+    private bool TryRemoveAllTemporaryModSettingsPlayer(int playerObjectIndex, int lockKey, out string message)
     {
         message = "";
         if (!IsIpcAvailable())
@@ -1774,9 +2053,7 @@ internal sealed class PenumbraInterop
         {
             var subscriber = _pluginInterface.GetIpcSubscriber<int, int, int>(
                 RemoveAllTemporaryModSettingsPlayerGate);
-            var result = (PenumbraIpcEc)subscriber.InvokeFunc(
-                playerObjectIndex,
-                HeelsDesignLinkerPenumbraLockKey);
+            var result = (PenumbraIpcEc)subscriber.InvokeFunc(playerObjectIndex, lockKey);
 
             if (result is PenumbraIpcEc.Success or PenumbraIpcEc.NothingChanged)
             {
@@ -1801,20 +2078,59 @@ internal sealed class PenumbraInterop
         string modDirectory,
         bool enabled,
         out PenumbraIpcEc result,
+        out string error) =>
+        TrySetTemporaryModEnabledPlayer(
+            playerObjectIndex,
+            collectionName,
+            modDirectory,
+            enabled,
+            PenumbraTempLayer.HeelsRule,
+            out result,
+            out error);
+
+    public bool TrySetSfwTemporaryModEnabledPlayer(
+        int playerObjectIndex,
+        string collectionName,
+        string modDirectory,
+        bool enabled,
+        out PenumbraIpcEc result,
+        out string error) =>
+        TrySetTemporaryModEnabledPlayer(
+            playerObjectIndex,
+            collectionName,
+            modDirectory,
+            enabled,
+            PenumbraTempLayer.SfwMode,
+            out result,
+            out error);
+
+    private bool TrySetTemporaryModEnabledPlayer(
+        int playerObjectIndex,
+        string collectionName,
+        string modDirectory,
+        bool enabled,
+        PenumbraTempLayer layer,
+        out PenumbraIpcEc result,
         out string error)
     {
         result = PenumbraIpcEc.UnknownError;
         error = "";
 
-        _ = collectionName;
-
+        var (source, lockKey) = GetTempLayerParams(layer);
+        var priority = ResolveTemporaryApplyPriority(
+            playerObjectIndex,
+            collectionName,
+            modDirectory,
+            lockKey);
         return TrySetTemporaryModSettingsPlayer(
             playerObjectIndex,
             modDirectory,
             forceInherit: false,
             enabled,
-            priority: 0,
+            priority,
             new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase),
+            source,
+            lockKey,
             out result,
             out error);
     }
@@ -1830,27 +2146,72 @@ internal sealed class PenumbraInterop
         IReadOnlyDictionary<string, IReadOnlyList<string>> optionGroupOverrides,
         bool mergeExistingTemporaryGroups,
         out PenumbraIpcEc result,
+        out string error) =>
+        TryApplyTemporaryModConfigurationPlayer(
+            playerObjectIndex,
+            collectionName,
+            modDirectory,
+            enabled,
+            optionGroupOverrides,
+            mergeExistingTemporaryGroups,
+            PenumbraTempLayer.HeelsRule,
+            out result,
+            out error);
+
+    public bool TryApplySfwTemporaryModConfigurationPlayer(
+        int playerObjectIndex,
+        string collectionName,
+        string modDirectory,
+        bool enabled,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> optionGroupOverrides,
+        bool mergeExistingTemporaryGroups,
+        out PenumbraIpcEc result,
+        out string error) =>
+        TryApplyTemporaryModConfigurationPlayer(
+            playerObjectIndex,
+            collectionName,
+            modDirectory,
+            enabled,
+            optionGroupOverrides,
+            mergeExistingTemporaryGroups,
+            PenumbraTempLayer.SfwMode,
+            out result,
+            out error);
+
+    private bool TryApplyTemporaryModConfigurationPlayer(
+        int playerObjectIndex,
+        string collectionName,
+        string modDirectory,
+        bool enabled,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> optionGroupOverrides,
+        bool mergeExistingTemporaryGroups,
+        PenumbraTempLayer layer,
+        out PenumbraIpcEc result,
         out string error)
     {
         result = PenumbraIpcEc.UnknownError;
         error = "";
 
-        _ = collectionName;
+        var (source, lockKey) = GetTempLayerParams(layer);
+        var priority = ResolveTemporaryApplyPriority(
+            playerObjectIndex,
+            collectionName,
+            modDirectory,
+            lockKey);
+        var overrideKeys = new HashSet<string>(
+            optionGroupOverrides.Keys.Where(key => !string.IsNullOrWhiteSpace(key)),
+            StringComparer.OrdinalIgnoreCase);
 
-        var overrideKeys = new HashSet<string>(optionGroupOverrides.Keys, StringComparer.OrdinalIgnoreCase);
-        var mergedOverrides = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
-        if (mergeExistingTemporaryGroups
-            && TryGetHeelsTemporaryModSettingsPlayer(playerObjectIndex, modDirectory, out var existingTemp))
-        {
-            foreach (var (group, names) in existingTemp)
-            {
-                if (!overrideKeys.Contains(group))
-                    mergedOverrides[group] = names;
-            }
-        }
-
-        foreach (var (group, names) in optionGroupOverrides)
-            mergedOverrides[group] = names;
+        if (!TryMergeTemporaryOptionOverrides(
+                collectionName,
+                modDirectory,
+                playerObjectIndex,
+                lockKey,
+                mergeExistingTemporaryGroups,
+                optionGroupOverrides,
+                out var mergedOverrides,
+                out error))
+            return false;
 
         if (!TryBuildSanitizedTemporaryOptionOverrides(
                 modDirectory,
@@ -1867,8 +2228,10 @@ internal sealed class PenumbraInterop
             modDirectory,
             forceInherit: false,
             enabled,
-            priority: 0,
+            priority,
             settings,
+            source,
+            lockKey,
             out result,
             out error);
     }
@@ -1877,6 +2240,27 @@ internal sealed class PenumbraInterop
     public bool TryGetHeelsTemporaryModSettingsPlayer(
         int playerObjectIndex,
         string modDirectory,
+        out Dictionary<string, List<string>> settingsByGroup) =>
+        TryGetTemporaryModSettingsPlayer(
+            playerObjectIndex,
+            modDirectory,
+            HeelsDesignLinkerPenumbraLockKey,
+            out settingsByGroup);
+
+    public bool TryGetSfwTemporaryModSettingsPlayer(
+        int playerObjectIndex,
+        string modDirectory,
+        out Dictionary<string, List<string>> settingsByGroup) =>
+        TryGetTemporaryModSettingsPlayer(
+            playerObjectIndex,
+            modDirectory,
+            SfwModePenumbraLockKey,
+            out settingsByGroup);
+
+    private bool TryGetTemporaryModSettingsPlayer(
+        int playerObjectIndex,
+        string modDirectory,
+        int lockKey,
         out Dictionary<string, List<string>> settingsByGroup)
     {
         settingsByGroup = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -1892,17 +2276,16 @@ internal sealed class PenumbraInterop
                 playerObjectIndex,
                 modDirectory.Trim(),
                 ResolveModDisplayName(modDirectory),
-                HeelsDesignLinkerPenumbraLockKey);
+                lockKey);
 
             if ((PenumbraIpcEc)ec != PenumbraIpcEc.Success || settingsPayload == null)
                 return false;
 
             var optionsItem = GetTupleItem4(settingsPayload);
-            if (optionsItem == null)
-                return false;
+            if (optionsItem != null)
+                ExtractSettingsDictionary(optionsItem, settingsByGroup);
 
-            ExtractSettingsDictionary(optionsItem, settingsByGroup);
-            return settingsByGroup.Count > 0;
+            return true;
         }
         catch
         {
@@ -1910,16 +2293,313 @@ internal sealed class PenumbraInterop
         }
     }
 
-    private static object? GetTupleItem4(object value)
+    private static object? GetTupleItem3(object value) => TryGetTupleItemAt(value, 3, out var item) ? item : null;
+
+    private static object? GetTupleItem4(object value) => TryGetTupleItemAt(value, 4, out var item) ? item : null;
+
+    /// <param name="itemIndex">ValueTuple 字段序号（Item1=1, Item2=2…）。</param>
+    private static bool TryGetTupleItemAt(object? value, int itemIndex, out object? item)
     {
+        item = null;
+        if (value == null || itemIndex <= 0)
+            return false;
+
+        var arrayIndex = itemIndex - 1;
+        if (value is object[] arr && arr.Length > arrayIndex)
+        {
+            item = arr[arrayIndex];
+            return true;
+        }
+
+        if (value is JArray jarr && jarr.Count > arrayIndex)
+        {
+            item = jarr[arrayIndex];
+            return true;
+        }
+
+        if (value is IList list && value is not string && value is not string[] && value is not JContainer
+            && list.Count > arrayIndex)
+        {
+            item = list[arrayIndex];
+            return true;
+        }
+
+        var key = $"Item{itemIndex}";
+        var lowerKey = $"item{itemIndex}";
+        var memberKey = $"m_Item{itemIndex}";
+
         if (value is JObject obj)
-            return obj["Item4"] ?? obj["item4"] ?? obj["m_Item4"];
+        {
+            item = obj[key] ?? obj[lowerKey] ?? obj[memberKey];
+            return item != null;
+        }
 
         if (value is IDictionary dict && value is not string)
-            return GetDictionaryValue(dict, "Item4", "item4", "m_Item4");
+        {
+            item = GetDictionaryValue(dict, key, lowerKey, memberKey);
+            return item != null;
+        }
 
         var type = value.GetType();
-        return type.GetField("Item4", BindingFlags.Public | BindingFlags.Instance)?.GetValue(value);
+        var field = type.GetField(key, BindingFlags.Public | BindingFlags.Instance);
+        if (field != null)
+        {
+            item = field.GetValue(value);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>从指定 Collection 的 Mod 配置读取优先级（每个行动组单独传入 collection）。</summary>
+    public bool TryGetCollectionModPriority(
+        string collectionName,
+        string modDirectory,
+        out int priority)
+    {
+        priority = 0;
+        var normalizedCollection = NormalizePenumbraCollectionName(collectionName);
+        if (!TryResolveCollectionId(normalizedCollection, out var collectionId, out _))
+            return false;
+
+        if (string.IsNullOrWhiteSpace(modDirectory))
+            return false;
+
+        if (TryGetCollectionModPriorityTyped(collectionId, modDirectory, out priority))
+            return true;
+
+        if (TryGetCollectionModPriorityFromAllCollections(collectionId, modDirectory, out priority))
+            return true;
+
+        return TryGetCollectionModPriorityUntyped(collectionId, modDirectory, out priority);
+    }
+
+    private bool TryGetCollectionModPriorityTyped(Guid collectionId, string modDirectory, out int priority)
+    {
+        priority = 0;
+        try
+        {
+            var modName = ResolveModDisplayName(modDirectory);
+            var subscriber = _pluginInterface.GetIpcSubscriber<
+                Guid, string, string, bool, (int, (bool, int, IReadOnlyDictionary<string, IReadOnlyList<string>>, bool)?)>(
+                GetCurrentModSettingsGate);
+            var (ec, settings) = subscriber.InvokeFunc(
+                collectionId,
+                modDirectory.Trim(),
+                modName,
+                false);
+
+            if (!IsPenumbraIpcSuccess((PenumbraIpcEc)ec) || settings is not { } tuple)
+                return false;
+
+            priority = tuple.Item2;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private bool TryGetCollectionModPriorityFromAllCollections(Guid collectionId, string modDirectory, out int priority)
+    {
+        priority = 0;
+        try
+        {
+            var modName = ResolveModDisplayName(modDirectory);
+            var subscriber = _pluginInterface.GetIpcSubscriber<
+                string, string, bool, (int, Dictionary<Guid, (bool, int, IReadOnlyDictionary<string, IReadOnlyList<string>>, bool, bool)>)>(
+                GetSettingsInAllCollectionsGate);
+            var (ec, allSettings) = subscriber.InvokeFunc(modDirectory.Trim(), modName, false);
+
+            if (!IsPenumbraIpcSuccess((PenumbraIpcEc)ec)
+                || !allSettings.TryGetValue(collectionId, out var modSettings))
+                return false;
+
+            priority = modSettings.Item2;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 跨 Collection 查找 Mod 优先级：优先指定 Collection，否则取任意非零 priority。
+    /// 用于 SFW 行动组 Collection 配置为 Default 但 Mod 实际在其它 Collection 有优先级时。
+    /// </summary>
+    private bool TryGetBestModPriorityFromAllCollections(
+        Guid preferredCollectionId,
+        string modDirectory,
+        out int priority)
+    {
+        priority = 0;
+        try
+        {
+            var modName = ResolveModDisplayName(modDirectory);
+            var subscriber = _pluginInterface.GetIpcSubscriber<
+                string, string, bool, (int, Dictionary<Guid, (bool, int, IReadOnlyDictionary<string, IReadOnlyList<string>>, bool, bool)>)>(
+                GetSettingsInAllCollectionsGate);
+            var (ec, allSettings) = subscriber.InvokeFunc(modDirectory.Trim(), modName, false);
+
+            if (!IsPenumbraIpcSuccess((PenumbraIpcEc)ec) || allSettings.Count == 0)
+                return false;
+
+            if (preferredCollectionId != Guid.Empty
+                && allSettings.TryGetValue(preferredCollectionId, out var preferredSettings))
+            {
+                priority = preferredSettings.Item2;
+                if (priority != 0)
+                    return true;
+            }
+
+            var bestNonZero = 0;
+            foreach (var (_, modSettings) in allSettings)
+            {
+                if (modSettings.Item2 != 0)
+                    bestNonZero = Math.Max(bestNonZero, modSettings.Item2);
+            }
+
+            if (bestNonZero != 0)
+            {
+                priority = bestNonZero;
+                return true;
+            }
+
+            return preferredCollectionId != Guid.Empty && allSettings.ContainsKey(preferredCollectionId);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private bool TryGetCollectionModPriorityUntyped(Guid collectionId, string modDirectory, out int priority)
+    {
+        priority = 0;
+        try
+        {
+            var modName = ResolveModDisplayName(modDirectory);
+            var subscriber = _pluginInterface.GetIpcSubscriber<
+                Guid, string, string, bool, bool, int, object>(
+                GetCurrentModSettingsWithTempGate);
+            var raw = subscriber.InvokeFunc(
+                collectionId,
+                modDirectory.Trim(),
+                modName,
+                false,
+                true,
+                0);
+
+            if (!TryUnwrapIpcResult(raw, out var payload, out var resultCode))
+                return false;
+
+            if (resultCode is not null
+                && TryConvertPenumbraIpcEc(resultCode, out var ec)
+                && !IsPenumbraIpcSuccess(ec))
+                return false;
+
+            if (payload == null)
+                return false;
+
+            return TryExtractPriorityFromTuplePayload(payload, out priority);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private bool TryGetTemporaryModPriority(
+        int playerObjectIndex,
+        string modDirectory,
+        int lockKey,
+        out int priority)
+    {
+        priority = 0;
+        if (!IsIpcAvailable() || string.IsNullOrWhiteSpace(modDirectory))
+            return false;
+
+        try
+        {
+            var subscriber = _pluginInterface.GetIpcSubscriber<int, string, string, int, (int, object?, string)>(
+                QueryTemporaryModSettingsPlayerGate);
+            var (ec, settingsPayload, _) = subscriber.InvokeFunc(
+                playerObjectIndex,
+                modDirectory.Trim(),
+                ResolveModDisplayName(modDirectory),
+                lockKey);
+
+            if ((PenumbraIpcEc)ec != PenumbraIpcEc.Success || settingsPayload == null)
+                return false;
+
+            var priorityItem = GetTupleItem3(settingsPayload);
+            return TryConvertPenumbraPriority(priorityItem, out priority);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private int ResolveTemporaryApplyPriority(
+        int playerObjectIndex,
+        string collectionName,
+        string modDirectory,
+        int lockKey)
+    {
+        var normalizedCollection = NormalizePenumbraCollectionName(collectionName);
+        int? collectionResolved = null;
+        if (TryGetCollectionModPriority(normalizedCollection, modDirectory, out var collectionPriority))
+            collectionResolved = collectionPriority;
+
+        int? playerCollectionResolved = null;
+        if (playerObjectIndex >= 0
+            && TryGetCollectionNameForObject(playerObjectIndex, out var playerCollection)
+            && !string.Equals(playerCollection, normalizedCollection, StringComparison.OrdinalIgnoreCase)
+            && TryGetCollectionModPriority(playerCollection, modDirectory, out var playerCollectionPriority))
+            playerCollectionResolved = playerCollectionPriority;
+
+        int? allCollectionsResolved = null;
+        if (TryResolveCollectionId(normalizedCollection, out var preferredCollectionId, out _)
+            && TryGetBestModPriorityFromAllCollections(preferredCollectionId, modDirectory, out var bestCollectionPriority))
+            allCollectionsResolved = bestCollectionPriority;
+
+        // SFW（-1210）在规则（-1211）之后 apply；若行动组 Collection 为 Default 等导致读到 0，
+        // 应继承规则层已写入的正确 priority，而不是被本层旧的 0 锁死。
+        int? ruleLayerResolved = null;
+        if (lockKey != HeelsDesignLinkerPenumbraLockKey
+            && TryGetTemporaryModPriority(
+                playerObjectIndex,
+                modDirectory,
+                HeelsDesignLinkerPenumbraLockKey,
+                out var ruleLayerPriority))
+            ruleLayerResolved = ruleLayerPriority;
+
+        int? sameLayerResolved = null;
+        if (TryGetTemporaryModPriority(playerObjectIndex, modDirectory, lockKey, out var sameLayerPriority))
+            sameLayerResolved = sameLayerPriority;
+
+        foreach (var candidate in new int?[]
+                 {
+                     collectionResolved,
+                     playerCollectionResolved,
+                     allCollectionsResolved,
+                     ruleLayerResolved,
+                     sameLayerResolved,
+                 })
+        {
+            if (candidate is int value && value != 0)
+                return value;
+        }
+
+        return collectionResolved
+            ?? playerCollectionResolved
+            ?? allCollectionsResolved
+            ?? ruleLayerResolved
+            ?? sameLayerResolved
+            ?? 0;
     }
 
     public bool TryApplyTemporaryModSettingPlayer(
@@ -1931,12 +2611,55 @@ internal sealed class PenumbraInterop
         bool optionEnabled,
         PenumbraGroupType groupType,
         out PenumbraIpcEc result,
+        out string error) =>
+        TryApplyTemporaryModSettingPlayer(
+            playerObjectIndex,
+            collectionName,
+            modDirectory,
+            optionGroupName,
+            optionName,
+            optionEnabled,
+            groupType,
+            PenumbraTempLayer.HeelsRule,
+            out result,
+            out error);
+
+    public bool TryApplySfwTemporaryModSettingPlayer(
+        int playerObjectIndex,
+        string collectionName,
+        string modDirectory,
+        string optionGroupName,
+        string optionName,
+        bool optionEnabled,
+        PenumbraGroupType groupType,
+        out PenumbraIpcEc result,
+        out string error) =>
+        TryApplyTemporaryModSettingPlayer(
+            playerObjectIndex,
+            collectionName,
+            modDirectory,
+            optionGroupName,
+            optionName,
+            optionEnabled,
+            groupType,
+            PenumbraTempLayer.SfwMode,
+            out result,
+            out error);
+
+    private bool TryApplyTemporaryModSettingPlayer(
+        int playerObjectIndex,
+        string collectionName,
+        string modDirectory,
+        string optionGroupName,
+        string optionName,
+        bool optionEnabled,
+        PenumbraGroupType groupType,
+        PenumbraTempLayer layer,
+        out PenumbraIpcEc result,
         out string error)
     {
         result = PenumbraIpcEc.UnknownError;
         error = "";
-
-        _ = collectionName;
 
         var trimmedGroup = optionGroupName.Trim();
         var trimmedOption = optionName.Trim();
@@ -1980,26 +2703,17 @@ internal sealed class PenumbraInterop
                 : [];
         }
 
-        if (!TryBuildSanitizedTemporaryOptionOverrides(
-                modDirectory,
-                new Dictionary<string, IReadOnlyList<string>>
-                {
-                    [trimmedGroup] = targetNames,
-                },
-                new HashSet<string>([trimmedGroup], StringComparer.OrdinalIgnoreCase),
-                out var settings,
-                out error))
-        {
-            return false;
-        }
-
-        return TrySetTemporaryModSettingsPlayer(
+        return TryApplyTemporaryModConfigurationPlayer(
             playerObjectIndex,
+            collectionName,
             modDirectory,
-            forceInherit: false,
-            true,
-            priority: 0,
-            settings,
+            enabled: true,
+            new Dictionary<string, IReadOnlyList<string>>
+            {
+                [trimmedGroup] = targetNames,
+            },
+            mergeExistingTemporaryGroups: true,
+            layer,
             out result,
             out error);
     }
@@ -2011,12 +2725,47 @@ internal sealed class PenumbraInterop
         string optionGroupName,
         IReadOnlyList<string> enabledOptionNames,
         out PenumbraIpcEc result,
+        out string error) =>
+        TryApplyTemporaryMultiToggleSettingsPlayer(
+            playerObjectIndex,
+            collectionName,
+            modDirectory,
+            optionGroupName,
+            enabledOptionNames,
+            PenumbraTempLayer.HeelsRule,
+            out result,
+            out error);
+
+    public bool TryApplySfwTemporaryMultiToggleSettingsPlayer(
+        int playerObjectIndex,
+        string collectionName,
+        string modDirectory,
+        string optionGroupName,
+        IReadOnlyList<string> enabledOptionNames,
+        out PenumbraIpcEc result,
+        out string error) =>
+        TryApplyTemporaryMultiToggleSettingsPlayer(
+            playerObjectIndex,
+            collectionName,
+            modDirectory,
+            optionGroupName,
+            enabledOptionNames,
+            PenumbraTempLayer.SfwMode,
+            out result,
+            out error);
+
+    private bool TryApplyTemporaryMultiToggleSettingsPlayer(
+        int playerObjectIndex,
+        string collectionName,
+        string modDirectory,
+        string optionGroupName,
+        IReadOnlyList<string> enabledOptionNames,
+        PenumbraTempLayer layer,
+        out PenumbraIpcEc result,
         out string error)
     {
         result = PenumbraIpcEc.UnknownError;
         error = "";
-
-        _ = collectionName;
 
         var trimmedGroup = optionGroupName.Trim();
         var targetNames = enabledOptionNames
@@ -2025,28 +2774,137 @@ internal sealed class PenumbraInterop
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (!TryBuildSanitizedTemporaryOptionOverrides(
-                modDirectory,
-                new Dictionary<string, IReadOnlyList<string>>
-                {
-                    [trimmedGroup] = targetNames,
-                },
-                new HashSet<string>([trimmedGroup], StringComparer.OrdinalIgnoreCase),
-                out var settings,
-                out error))
+        return TryApplyTemporaryModConfigurationPlayer(
+            playerObjectIndex,
+            collectionName,
+            modDirectory,
+            enabled: true,
+            new Dictionary<string, IReadOnlyList<string>>
+            {
+                [trimmedGroup] = targetNames,
+            },
+            mergeExistingTemporaryGroups: true,
+            layer,
+            out result,
+            out error);
+    }
+
+    private static (string Source, int LockKey) GetTempLayerParams(PenumbraTempLayer layer) =>
+        layer == PenumbraTempLayer.SfwMode
+            ? (SfwModePenumbraSource, SfwModePenumbraLockKey)
+            : (HeelsDesignLinkerPenumbraSource, HeelsDesignLinkerPenumbraLockKey);
+
+    private bool TryMergeTemporaryOptionOverrides(
+        string collectionName,
+        string modDirectory,
+        int playerObjectIndex,
+        int lockKey,
+        bool mergeExistingTemporaryGroups,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> optionGroupOverrides,
+        out Dictionary<string, IReadOnlyList<string>> mergedOverrides,
+        out string error)
+    {
+        mergedOverrides = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        error = "";
+
+        if (!TryGetCollectionModOptionSnapshot(collectionName, modDirectory, out var collectionBaseline, out error))
+            return false;
+
+        Dictionary<string, List<string>>? existingSameKeyTemp = null;
+        if (mergeExistingTemporaryGroups
+            && TryGetTemporaryModSettingsPlayer(playerObjectIndex, modDirectory, lockKey, out var tempSettings))
+            existingSameKeyTemp = tempSettings;
+
+        var merged = PenumbraTemporaryOptionMerge.Merge(
+            collectionBaseline,
+            existingSameKeyTemp,
+            optionGroupOverrides);
+
+        foreach (var (group, names) in merged)
+            mergedOverrides[group] = names;
+
+        return true;
+    }
+
+    /// <summary>读取 Collection 内该 Mod 的完整选项快照（不含任何临时层）。</summary>
+    private bool TryGetCollectionModOptionSnapshot(
+        string collectionName,
+        string modDirectory,
+        out Dictionary<string, List<string>> settingsByGroup,
+        out string error)
+    {
+        settingsByGroup = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        error = "";
+
+        if (string.IsNullOrWhiteSpace(modDirectory))
         {
+            error = "Mod not selected";
             return false;
         }
 
-        return TrySetTemporaryModSettingsPlayer(
-            playerObjectIndex,
-            modDirectory,
-            forceInherit: false,
-            true,
-            priority: 0,
-            settings,
-            out result,
-            out error);
+        var trimmedModDirectory = modDirectory.Trim();
+
+        // 优先 per-mod GetCurrentModSettings（ignoreTemporary），避免 GetAllModSettings 快照缺组导致临时层其它组被关。
+        if (TryGetCollectionModConfigurationForImport(
+                collectionName,
+                trimmedModDirectory,
+                out _,
+                out var importSettings,
+                out error))
+        {
+            foreach (var (group, names) in importSettings)
+                settingsByGroup[group] = names.ToList();
+
+            return true;
+        }
+
+        if (!TryResolveCollectionId(collectionName, out var collectionId, out error))
+            return false;
+
+        try
+        {
+            var subscriber = _pluginInterface.GetIpcSubscriber<
+                Guid, bool, bool, int, (int, Dictionary<string, (bool, int, IReadOnlyDictionary<string, IReadOnlyList<string>>, bool, bool)>?)>(
+                GetAllModSettingsGate);
+            var (ec, allMods) = subscriber.InvokeFunc(collectionId, false, true, 0);
+
+            if (IsPenumbraIpcSuccess((PenumbraIpcEc)ec)
+                && allMods != null
+                && TryFindModSettingsInAllModsSnapshot(allMods, trimmedModDirectory, out settingsByGroup))
+                return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"读取 Penumbra Collection 快照失败: {ex.Message}";
+        }
+
+        return settingsByGroup.Count > 0;
+    }
+
+    private static bool TryFindModSettingsInAllModsSnapshot(
+        IReadOnlyDictionary<string, (bool, int, IReadOnlyDictionary<string, IReadOnlyList<string>>, bool, bool)> allMods,
+        string modDirectory,
+        out Dictionary<string, List<string>> settingsByGroup)
+    {
+        settingsByGroup = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (modKey, modSettings) in allMods)
+        {
+            if (!string.Equals(modKey, modDirectory, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            foreach (var (group, names) in modSettings.Item3)
+                settingsByGroup[group] = names
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Select(name => name.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+            return true;
+        }
+
+        return false;
     }
 
     private bool TryGetEffectiveModSettingsForTempApply(
@@ -2102,7 +2960,11 @@ internal sealed class PenumbraInterop
         if (!ReadIncludingTemporarySettings || playerObjectIndex is not int playerIndex)
             return true;
 
-        if (!TryGetHeelsTemporaryModSettingsPlayer(playerIndex, modDirectory, out var playerTemp))
+        if (!TryGetTemporaryModSettingsPlayer(
+                playerIndex,
+                modDirectory,
+                TemporarySettingsReadKey,
+                out var playerTemp))
             return true;
 
         var merged = settingsByGroup.ToDictionary(
@@ -2292,6 +3154,8 @@ internal sealed class PenumbraInterop
         bool enabled,
         int priority,
         Dictionary<string, List<string>> settings,
+        string source,
+        int lockKey,
         out PenumbraIpcEc result,
         out string error)
     {
@@ -2325,8 +3189,8 @@ internal sealed class PenumbraInterop
                 modDirectory.Trim(),
                 ResolveModDisplayName(modDirectory),
                 (forceInherit, enabled, priority, ipcSettings),
-                HeelsDesignLinkerPenumbraSource,
-                HeelsDesignLinkerPenumbraLockKey);
+                source,
+                lockKey);
 
             result = (PenumbraIpcEc)ipcResult;
             if (IsPenumbraIpcSuccess(result))
