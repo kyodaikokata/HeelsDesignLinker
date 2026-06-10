@@ -250,6 +250,13 @@ namespace HeelsDesignLinker
         public static string DeleteConditionGroup => IsChine ? "删除此条件组" : "Delete this condition group";
         public static string ConfirmDeleteConditionGroup => IsChine ? "确认删除此条件组？" : "Delete this condition group?";
         public static string ConditionGroupLabel(int index) => IsChine ? $"条件组 #{index + 1}" : $"Group #{index + 1}";
+        public static string RuleSfwModeEnabledLabel => IsChine ? "SFW 模式参与" : "Active in SFW mode";
+        public static string RuleSfwModeEnabledTooltip => IsChine
+            ? "关闭后，全局 SFW 模式激活时该规则不参与匹配与应用（非 SFW 模式下始终参与）。"
+            : "When off, this rule is skipped for matching and apply while global SFW mode is active (always participates when SFW is off).";
+        public static string RuleSfwModeStatusBadge(bool enabled) => enabled
+            ? (IsChine ? "[SFW:参与]" : "[SFW:on]")
+            : (IsChine ? "[SFW:跳过]" : "[SFW:off]");
         public static string ConnectToNextGroup => IsChine
             ? "选择如何连接到下一个条件组"
             : "Choose how to connect to the next condition group";

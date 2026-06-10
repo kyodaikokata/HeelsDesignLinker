@@ -23,8 +23,8 @@
       "other"
     ],
     "DalamudApiLevel": 15,
-    "AssemblyVersion": "1.4.1.0",
-    "Changelog": "1.4.1.0: 规则分组、多规则叠加、Glamourer 槽位优先级、折叠状态持久化修复等。详见游戏内更新履历。",
+    "AssemblyVersion": "1.4.2.0",
+    "Changelog": "1.4.2.0: 规则 SFW 模式参与开关。详见游戏内更新履历。",
     "LastUpdate": "0",
     "RepoUrl": "https://github.com/kyodaikokata/HeelsDesignLinker",
     "DownloadLinkInstall": "https://raw.githubusercontent.com/kyodaikokata/KKT-Catalog/main/plugins/HeelsDesignLinker/latest-cn.zip",

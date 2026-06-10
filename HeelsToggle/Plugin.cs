@@ -720,6 +720,10 @@ namespace HeelsDesignLinker
         public bool MoodleIsPreset { get; set; }
         
         public bool IsActive { get; set; } = true;
+
+        /// <summary>SFW 模式激活时该规则是否参与匹配（默认 true = 参与）。</summary>
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Include)]
+        public bool SfwModeEnabled { get; set; } = true;
         
         /// <summary>行动列表是否折叠显示（UI 状态，已合并至 <see cref="IsCollapsed"/>，仅用于旧配置迁移）。</summary>
         [JsonProperty(DefaultValueHandling = DefaultValueHandling.Include)]
@@ -766,7 +770,9 @@ namespace HeelsDesignLinker
         
         /// <summary>获取当前激活的规则列表</summary>
         private List<HeelsRule> ActiveRules => 
-            Configuration.RuleSets.Count > 0 && Configuration.ActiveRuleSetIndex >= 0 && Configuration.ActiveRuleSetIndex < Configuration.RuleSets.Count
+            Configuration.RuleSets.Count > 0 
+            && Configuration.ActiveRuleSetIndex >= 0 
+            && Configuration.ActiveRuleSetIndex < Configuration.RuleSets.Count
                 ? Configuration.RuleSets[Configuration.ActiveRuleSetIndex].Rules
                 : new List<HeelsRule>();
 
@@ -958,7 +964,7 @@ namespace HeelsDesignLinker
         private bool restoreDefaultsPending;
         private bool wasSettingsTabActive;
         private const string KoFiUrl = "https://ko-fi.com/kokatakyodai";
-        private const int ConfigSchemaVersion = 20;
+        private const int ConfigSchemaVersion = 21;
         private const int SfwGroupRuleIndexBase = -2;
         private const int PenumbraSubHostRuleIndexBase = -100000;
         private const int PenumbraSubHostRuleIndexStride = 1000;
@@ -1194,6 +1200,10 @@ namespace HeelsDesignLinker
                 {
                     // v20: 规则/行动折叠状态持久化修复（Penumbra 组与 IsActionCollapsed 同步、旧 IsActionsCollapsed 迁移）。
                     NormalizeCollapsePersistence();
+                }
+                if (Configuration.Version < 21)
+                {
+                    // v21: HeelsRule.SfwModeEnabled（默认 true，旧规则在 SFW 模式下仍参与匹配）。
                 }
                 Configuration.Version = ConfigSchemaVersion;
                 PluginInterface.SavePluginConfig(Configuration);
@@ -7253,15 +7263,17 @@ namespace HeelsDesignLinker
                 
                 if (currentRule.BranchKind == RuleBranchKind.Else && !IsRuleGroupStart(ruleIndex))
                 {
-                    // 否则分支，显示 "否则"
-                    ImGui.Text($"{branchLabel}");
+                    // 否则分支，显示 "否则" 与 SFW 参与状态
+                    var sfwBadge = Localization.RuleSfwModeStatusBadge(currentRule.SfwModeEnabled);
+                    ImGui.Text($"{branchLabel} {sfwBadge}");
                 }
                 else
                 {
-                    // 否则如果或如果，显示条件组数量
+                    // 否则如果或如果，显示条件组数量与 SFW 参与状态
                     var groupCount = currentRule.ConditionGroups?.Count ?? 0;
                     var groupText = Localization.ConditionGroupCount(groupCount);
-                    ImGui.Text($"{branchLabel} - {groupText}");
+                    var sfwBadge = Localization.RuleSfwModeStatusBadge(currentRule.SfwModeEnabled);
+                    ImGui.Text($"{branchLabel} - {groupText} {sfwBadge}");
                 }
                 
                 // 新行：显示条件类型摘要
@@ -7386,6 +7398,13 @@ namespace HeelsDesignLinker
         private void DrawConditionSystemUI(int ruleIndex, HeelsRule rule, bool hasUnreachableWarning)
         {
             var isElseBranch = ruleIndex > 0 && rule.BranchKind == RuleBranchKind.Else;
+
+            // 否则分支无独立条件组，在条件区顶部单独显示 SFW 参与开关
+            if (isElseBranch)
+            {
+                DrawRuleSfwModeParticipationControl(ruleIndex, rule);
+                ImGui.Spacing();
+            }
             
             // 确保 ConditionGroups 已初始化（如果规则不是 Else）
             if (!isElseBranch)
@@ -7462,10 +7481,38 @@ namespace HeelsDesignLinker
                 ImGui.SetTooltip(Localization.AddConditionGroupTooltip);
         }
         
+        /// <summary>规则在 SFW 模式下是否参与匹配（显示在首个条件组标题行，或否则分支条件区顶部）。</summary>
+        private void DrawRuleSfwModeParticipationControl(int ruleIndex, HeelsRule rule)
+        {
+            var enabled = rule.SfwModeEnabled;
+            if (ImGui.Checkbox($"{Localization.RuleSfwModeEnabledLabel}##SfwRule{ruleIndex}", ref enabled))
+            {
+                rule.SfwModeEnabled = enabled;
+                lastApplyUtc = DateTime.MinValue;
+                SaveConfig();
+            }
+
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(Localization.RuleSfwModeEnabledTooltip);
+        }
+
         /// <summary>绘制条件组标题栏（包含组内操作符选择器和删除按钮）</summary>
         private void DrawConditionGroupHeader(int ruleIndex, int groupIndex, ConditionGroup group, bool hasUnreachableWarning)
         {
             var rule = ActiveRules[ruleIndex];
+
+            // 首个条件组标题行：SFW 参与开关 + 状态徽章（折叠规则摘要也会显示徽章）
+            if (groupIndex == 0)
+            {
+                DrawRuleSfwModeParticipationControl(ruleIndex, rule);
+                ImGui.SameLine();
+                ImGui.AlignTextToFramePadding();
+                var badgeColor = rule.SfwModeEnabled
+                    ? new Vector4(0.55f, 0.85f, 0.55f, 1.0f)
+                    : new Vector4(0.75f, 0.75f, 0.75f, 1.0f);
+                ImGui.TextColored(badgeColor, Localization.RuleSfwModeStatusBadge(rule.SfwModeEnabled));
+                ImGui.SameLine();
+            }
             
             // 删除条件组按钮（只有多个组时才显示）
             if (rule.ConditionGroups!.Count > 1)
@@ -11154,6 +11201,9 @@ namespace HeelsDesignLinker
         private bool TryMatchRule(HeelsRule rule, int ruleIndex, float height, bool allowEquipmentEvaluation)
         {
             if (!rule.IsActive)
+                return false;
+
+            if (Configuration.SfwModeActive && !rule.SfwModeEnabled)
                 return false;
 
             // 分组首条始终是“如果”（条件分支）；仅非分组首条的“否则”才无条件兜底命中。

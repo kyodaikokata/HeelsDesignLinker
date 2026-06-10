@@ -4,10 +4,21 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.1.0";
+        public const string CurrentVersion = "1.4.2.0";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.0",
+                "2026-06-10",
+                [
+                    "规则条件组新增「SFW 模式参与」开关：关闭后该规则在全局 SFW 模式激活时不参与匹配与应用",
+                    "开关显示在首个条件组标题行；规则折叠后摘要与否则分支条件区也会显示 [SFW:参与] / [SFW:跳过] 状态",
+                ],
+                [
+                    "Rules: \"Active in SFW mode\" toggle on the first condition-group header; when off, the rule is skipped while global SFW is active",
+                    "SFW participation badge [SFW:on/off] shown in the collapsed rule summary and on else-branch condition rows",
+                ]),
             new(
                 "1.4.1.0",
                 "2026-06-10",

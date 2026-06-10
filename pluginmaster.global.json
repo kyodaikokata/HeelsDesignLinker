@@ -23,8 +23,8 @@
       "other"
     ],
     "DalamudApiLevel": 15,
-    "AssemblyVersion": "1.4.1.0",
-    "Changelog": "1.4.1.0: Rule groups, multi-rule stacking, Glamourer slot priority, collapse persistence fix, and more. See in-app changelog.",
+    "AssemblyVersion": "1.4.2.0",
+    "Changelog": "1.4.2.0: Per-rule SFW participation toggle. See in-app changelog.",
     "LastUpdate": "0",
     "RepoUrl": "https://github.com/kyodaikokata/HeelsDesignLinker",
     "DownloadLinkInstall": "https://raw.githubusercontent.com/kyodaikokata/KKT-Catalog/main/plugins/HeelsDesignLinker/latest-global.zip",
