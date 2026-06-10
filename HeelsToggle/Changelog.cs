@@ -4,10 +4,21 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.2";
+        public const string CurrentVersion = "1.4.2.3";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.3",
+                "2026-06-10",
+                [
+                    "修复多规则同时命中且各有 Moodles 行动时，因去重键只能记住最后一个 Moodle 而导致每个冷却周期反复 re-apply 的问题",
+                    "Moodles 下拉列表每次展开时自动刷新；若当前选中项已在 Moodles 插件中删除则自动清空",
+                ],
+                [
+                    "Fix Moodles re-applying every cooldown when multiple matched rules each have a different Moodle action",
+                    "Moodles dropdown refreshes on each open; stale selections removed from Moodles are cleared automatically",
+                ]),
             new(
                 "1.4.2.2",
                 "2026-06-10",

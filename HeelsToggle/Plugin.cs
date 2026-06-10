@@ -2669,6 +2669,9 @@ namespace HeelsDesignLinker
         private static string BuildMoodleKey(HeelsRule rule) =>
             $"{rule.MoodleGuid}|{(rule.MoodleIsPreset ? "preset" : "status")}";
 
+        private static string BuildRuleMoodleApplyKey(HeelsRuleAction action) =>
+            $"M:{action.MoodleGuid}|{(action.MoodleIsPreset ? "preset" : "status")}";
+
         private bool IsApplyCooldownElapsed(out string status)
         {
             var cooldown = Math.Max(0f, Configuration.ApplyCooldownSeconds);
@@ -3105,12 +3108,13 @@ namespace HeelsDesignLinker
                         if (!string.IsNullOrWhiteSpace(action.MoodleGuid)
                             && Guid.TryParse(action.MoodleGuid, out var moodleId) && moodleId != Guid.Empty)
                         {
-                            var moodleKey = $"{action.MoodleGuid}|{(action.MoodleIsPreset ? "preset" : "status")}";
-                            if (moodleKey != lastAppliedMoodleKey)
+                            var moodleKey = BuildRuleMoodleApplyKey(action);
+                            if (!lastAppliedActionKeys.Contains(moodleKey))
                             {
                                 if (_moodlesInterop.TryApply(localPlayer, moodleId, action.MoodleIsPreset, out var moodlesError))
                                 {
-                                    lastAppliedMoodleKey = moodleKey;
+                                    lastAppliedActionKeys.Add(moodleKey);
+                                    lastAppliedMoodleKey = moodleKey[2..];
                                     appliedAnything = true;
                                     lastError = "";
                                     RecordAppliedActionSummary("Moodles");
@@ -4953,13 +4957,28 @@ namespace HeelsDesignLinker
             var signature = Configuration.LastShutdownMatchedRuleSignature ?? "";
             lastMatchedSetSignature = signature;
             stableTrackingSignature = signature;
-            lastAppliedMoodleKey = Configuration.LastShutdownAppliedMoodleKey ?? "";
             lastAppliedHonorificJson = Configuration.LastShutdownLastAppliedHonorificJson ?? "";
             lastAppliedActionKeys.Clear();
             foreach (var key in Configuration.LastShutdownAppliedActionKeys ?? [])
             {
                 if (!string.IsNullOrEmpty(key))
                     lastAppliedActionKeys.Add(key);
+            }
+
+            var restoredMoodleKey = Configuration.LastShutdownAppliedMoodleKey ?? "";
+            if (!string.IsNullOrEmpty(restoredMoodleKey))
+            {
+                var legacyApplyKey = restoredMoodleKey.StartsWith("M:", StringComparison.Ordinal)
+                    ? restoredMoodleKey
+                    : $"M:{restoredMoodleKey}";
+                lastAppliedActionKeys.Add(legacyApplyKey);
+                lastAppliedMoodleKey = legacyApplyKey.StartsWith("M:", StringComparison.Ordinal)
+                    ? legacyApplyKey[2..]
+                    : restoredMoodleKey;
+            }
+            else
+            {
+                lastAppliedMoodleKey = "";
             }
 
             skipReapplyForRestoredShutdownMatch = true;
@@ -9844,6 +9863,36 @@ namespace HeelsDesignLinker
                 ImGui.SetTooltip(Localization.SoundMixerTemporaryHint);
         }
 
+        private static bool MoodleSelectionExists(string? guid, bool isPreset, IReadOnlyList<MoodleListItem> items)
+        {
+            if (string.IsNullOrWhiteSpace(guid))
+                return true;
+
+            if (!Guid.TryParse(guid, out var id) || id == Guid.Empty)
+                return false;
+
+            return items.Any(m => m.Id == id && m.IsPreset == isPreset);
+        }
+
+        private bool PruneStaleMoodleSelection(HeelsRuleAction action, IReadOnlyList<MoodleListItem> items)
+        {
+            if (MoodleSelectionExists(action.MoodleGuid, action.MoodleIsPreset, items))
+                return false;
+
+            action.MoodleGuid = "";
+            action.MoodleIsPreset = false;
+            return true;
+        }
+
+        private IReadOnlyList<MoodleListItem> RefreshMoodleItemsAndPruneSelection(HeelsRuleAction action)
+        {
+            var moodleItems = _moodlesInterop.GetItems(force: true);
+            if (PruneStaleMoodleSelection(action, moodleItems))
+                PersistRuleSetAfterActionMutation();
+
+            return moodleItems;
+        }
+
         private void DrawMoodlesActionEditor(int ruleIndex, int actionIndex, HeelsRuleAction action, string idSuffix)
         {
             if (!isMoodlesIpcReady)
@@ -9852,7 +9901,6 @@ namespace HeelsDesignLinker
                 return;
             }
             
-            // 获取 Moodles 列表
             var moodleItems = _moodlesInterop.GetItems(force: false);
             
             ImGui.Text(Localization.MoodlesStatusPresetLabel);
@@ -9865,6 +9913,9 @@ namespace HeelsDesignLinker
             ImGui.SetNextItemWidth(-1);
             if (ImGui.BeginCombo($"##MoodleSelect{idSuffix}", currentDisplay))
             {
+                if (ImGui.IsWindowAppearing())
+                    moodleItems = RefreshMoodleItemsAndPruneSelection(action);
+
                 // "无" 选项
                 if (ImGui.Selectable(Localization.NoneSelected, string.IsNullOrWhiteSpace(action.MoodleGuid)))
                 {
@@ -9924,9 +9975,7 @@ namespace HeelsDesignLinker
             // 刷新按钮
             ImGui.SameLine();
             if (ImGui.SmallButton($"{Localization.Refresh}##RefreshMoodles{idSuffix}"))
-            {
-                _moodlesInterop.RefreshList(force: true);
-            }
+                RefreshMoodleItemsAndPruneSelection(action);
         }
 
         private string GetMoodleDisplayName(string guid, bool isPreset, IReadOnlyList<MoodleListItem> items)
@@ -11286,7 +11335,11 @@ namespace HeelsDesignLinker
                 
                 ImGui.TextWrapped($"{Localization.LastAppliedPrimary}: {lastAppliedDisplay}");
                 ImGui.Text($"{Localization.LastAppliedHonorific}: {(string.IsNullOrEmpty(lastAppliedHonorificJson) ? "-" : Localization.HonorificApplied)}");
-                ImGui.Text($"{Localization.LastAppliedMoodle}: {(string.IsNullOrEmpty(lastAppliedMoodleKey) ? "-" : lastAppliedMoodleKey)}");
+                var appliedMoodleKeys = lastAppliedActionKeys
+                    .Where(k => k.StartsWith("M:", StringComparison.Ordinal)
+                        || k.StartsWith("Baseline:M:", StringComparison.Ordinal))
+                    .ToList();
+                ImGui.Text($"{Localization.LastAppliedMoodle}: {(appliedMoodleKeys.Count == 0 ? "-" : string.Join(", ", appliedMoodleKeys))}");
                 ImGui.Text($"{Localization.ApplyGate}: {applyGateStatus}");
                 
                 ImGui.Unindent();

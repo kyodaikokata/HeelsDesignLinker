@@ -23,8 +23,8 @@
       "other"
     ],
     "DalamudApiLevel": 15,
-    "AssemblyVersion": "1.4.2.2",
-    "Changelog": "1.4.2.2: 启用时校验配置，错放字段拆分为独立行动。详见游戏内更新履历。",
+    "AssemblyVersion": "1.4.2.3",
+    "Changelog": "1.4.2.3: 修复多规则 Moodles 反复 apply；下拉展开时刷新并清理失效项。详见游戏内更新履历。",
     "LastUpdate": "0",
     "RepoUrl": "https://github.com/kyodaikokata/HeelsDesignLinker",
     "DownloadLinkInstall": "https://raw.githubusercontent.com/kyodaikokata/KKT-Catalog/main/plugins/HeelsDesignLinker/latest-cn.zip",
