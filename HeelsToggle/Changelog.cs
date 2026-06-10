@@ -4,10 +4,21 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.0";
+        public const string CurrentVersion = "1.4.2.1";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.1",
+                "2026-06-10",
+                [
+                    "关闭插件或退出游戏时保存命中规则与 apply 去重状态；再次启用插件或登录进游戏后，若命中与上次相同则跳过基准行动与规则 re-apply",
+                    "避免重启后基准「穿鞋」Moodle 等清 buff 再与规则高跟鞋互相覆盖",
+                ],
+                [
+                    "Persist matched rules and apply dedup on plugin unload or logout; on reload or login, skip baseline and rule re-apply when the match is unchanged",
+                    "Avoid baseline shoe Moodle clearing buffs and fighting rule heel Moodle after restart",
+                ]),
             new(
                 "1.4.2.0",
                 "2026-06-10",

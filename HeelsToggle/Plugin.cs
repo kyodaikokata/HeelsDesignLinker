@@ -523,6 +523,21 @@ namespace HeelsDesignLinker
         /// <summary>当前激活的规则集索引</summary>
         public int ActiveRuleSetIndex { get; set; } = 0;
 
+        /// <summary>上次关闭插件时的命中规则签名（逗号分隔规则索引，空表示无匹配）。</summary>
+        public string LastShutdownMatchedRuleSignature { get; set; } = "";
+
+        /// <summary>上次关闭插件时激活的规则集索引。</summary>
+        public int LastShutdownActiveRuleSetIndex { get; set; } = -1;
+
+        /// <summary>上次关闭时的 Moodles apply 去重键。</summary>
+        public string LastShutdownAppliedMoodleKey { get; set; } = "";
+
+        /// <summary>上次关闭时的 Honorific apply 去重键。</summary>
+        public string LastShutdownLastAppliedHonorificJson { get; set; } = "";
+
+        /// <summary>上次关闭时的行动 apply 去重键（含基准 Penumbra/Moodles 等）。</summary>
+        public List<string> LastShutdownAppliedActionKeys { get; set; } = new();
+
         /// <summary>旧版统一规则列表，仅用于迁移。</summary>
         [Obsolete("Use RuleSets instead")]
         public List<HeelsRule> Rules { get; set; } = new();
@@ -839,6 +854,8 @@ namespace HeelsDesignLinker
         private string penumbraStatusDisplayText = "";
         private string lastAppliedHonorificJson = "";
         private string lastAppliedMoodleKey = "";
+        /// <summary>启动后若命中与上次关闭相同，跳过一次基准/规则 re-apply。</summary>
+        private bool skipReapplyForRestoredShutdownMatch;
         
         // 用于UI显示的"上次执行"信息（与去重机制分离）
         private int lastExecutedRuleIndex = -1;
@@ -931,8 +948,8 @@ namespace HeelsDesignLinker
         /// <summary>登录保护最长持续时间，超时后自动结束以免拖慢正常游戏。</summary>
         private static readonly TimeSpan LoginProtectionMaxDuration = TimeSpan.FromSeconds(45);
         /// <summary>登录保护结束后，再延迟一段时间才允许基准行动（避免紧接 revert 把刚加载的投影剥掉）。</summary>
-        private static readonly TimeSpan PostLoginBaselineDelay = TimeSpan.FromSeconds(2);
-        /// <summary>登录后一段时间内，规则匹配稳定等待的上限（仅影响规则 apply，不影响基准）。</summary>
+        private static readonly TimeSpan PostLoginBaselineDelay = TimeSpan.FromSeconds(0.1f);
+        /// <summary>登录后一段时间内，规则匹配稳定等待的上限（与基准行动同步门控后，二者同周期 apply）。</summary>
         private static readonly TimeSpan PostLoginFastMatchWindow = TimeSpan.FromSeconds(20);
         private const float PostLoginRuleMatchStableCapSeconds = 0.2f;
         /// <summary>登录后延迟多久才允许基准 Glamourer revert（与规则 Glamourer apply 无关）。</summary>
@@ -964,7 +981,7 @@ namespace HeelsDesignLinker
         private bool restoreDefaultsPending;
         private bool wasSettingsTabActive;
         private const string KoFiUrl = "https://ko-fi.com/kokatakyodai";
-        private const int ConfigSchemaVersion = 21;
+        private const int ConfigSchemaVersion = 22;
         private const int SfwGroupRuleIndexBase = -2;
         private const int PenumbraSubHostRuleIndexBase = -100000;
         private const int PenumbraSubHostRuleIndexStride = 1000;
@@ -1205,11 +1222,16 @@ namespace HeelsDesignLinker
                 {
                     // v21: HeelsRule.SfwModeEnabled（默认 true，旧规则在 SFW 模式下仍参与匹配）。
                 }
+                if (Configuration.Version < 22)
+                {
+                    // v22: LastShutdown* 字段用于插件重载后恢复命中与 apply 去重状态。
+                }
                 Configuration.Version = ConfigSchemaVersion;
                 PluginInterface.SavePluginConfig(Configuration);
             }
 
             Localization.SetLanguagePreference(Configuration.UiLanguage);
+            RestoreShutdownApplySnapshot();
             
             // 确保至少有一个规则集
             if (Configuration.RuleSets.Count == 0)
@@ -1390,6 +1412,49 @@ namespace HeelsDesignLinker
                     sub.PenumbraMultiToggleStates,
                     StringComparer.OrdinalIgnoreCase),
             };
+
+        /// <summary>将 UI 临时扁平对象写回 Penumbra 子行动（SaveConfig 前必须同步，否则磁盘仍为旧值）。</summary>
+        private static void ApplyFlatPenumbraSubActionToSub(PenumbraSubAction sub, HeelsRuleAction flat)
+        {
+            sub.PenumbraOption = flat.PenumbraOption ?? "";
+            sub.PenumbraOptionName = flat.PenumbraOptionName ?? "";
+            sub.PenumbraOptionEnabled = flat.PenumbraOptionEnabled;
+            sub.PenumbraOverwriteGlamourer = flat.PenumbraOverwriteGlamourer;
+            sub.PenumbraMultiToggleStates = new Dictionary<string, bool>(
+                flat.PenumbraMultiToggleStates,
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        private void SavePenumbraSubActionEdit(PenumbraSubAction? syncSub, HeelsRuleAction flat)
+        {
+            if (syncSub != null)
+                ApplyFlatPenumbraSubActionToSub(syncSub, flat);
+            SaveConfig();
+        }
+
+        private IEnumerable<HeelsRuleAction> EnumerateEffectiveRuleActions(HeelsRule rule)
+        {
+            foreach (var action in GetRuleActions(rule))
+            {
+                if (action.Type == ActionType.Penumbra)
+                {
+                    foreach (var flat in FlattenPenumbraGroupAction(action))
+                        yield return flat;
+                }
+                else
+                {
+                    yield return action;
+                }
+            }
+        }
+
+        /// <summary>规则行动增删改后同步基准配置并持久化。</summary>
+        private void PersistRuleSetAfterActionMutation()
+        {
+            if (TryGetActiveRuleSet(out var ruleSet) && ruleSet.UseBaselineActions)
+                UpdateBaselineConfigs(ruleSet);
+            SaveConfig();
+        }
 
         private List<HeelsRuleAction> FlattenPenumbraGroup(PenumbraActionGroup group) =>
             group.SubActions.Select(sub => FlattenPenumbraSubAction(group, sub)).ToList();
@@ -2213,6 +2278,7 @@ namespace HeelsDesignLinker
             loginSinceUtc = DateTime.UtcNow;
             isLoginProtectionActive = true;
             ResetApplyState();
+            RestoreShutdownApplySnapshot();
         }
 
         private bool IsLoginProtectionActive()
@@ -2249,6 +2315,32 @@ namespace HeelsDesignLinker
                    || DateTime.UtcNow >= baselineActionsAllowedAfterUtc.Value;
         }
 
+        private bool TryGetActiveRuleSet(out RuleSet ruleSet)
+        {
+            ruleSet = null!;
+            if (Configuration.RuleSets.Count == 0
+                || Configuration.ActiveRuleSetIndex < 0
+                || Configuration.ActiveRuleSetIndex >= Configuration.RuleSets.Count)
+            {
+                return false;
+            }
+
+            ruleSet = Configuration.RuleSets[Configuration.ActiveRuleSetIndex];
+            return true;
+        }
+
+        /// <summary>
+        /// 启用基准行动时，须等基准行动允许窗口到达后再与规则行动同周期 apply（同周期内基准先于规则）。
+        /// 避免登录保护刚结束、基准仍有 PostLoginBaselineDelay 时规则已先 apply 一轮。
+        /// </summary>
+        private bool IsBaselineBlockingRuleApply()
+        {
+            if (!TryGetActiveRuleSet(out var ruleSet) || !ruleSet.UseBaselineActions)
+                return false;
+
+            return !IsBaselineApplyAllowed();
+        }
+
         private bool IsBaselineGlamourerRevertAllowed()
         {
             if (!loginSinceUtc.HasValue)
@@ -2267,6 +2359,7 @@ namespace HeelsDesignLinker
 
         private void OnLogout(int type, int code)
         {
+            PersistShutdownApplySnapshot();
             loginSinceUtc = null;
             isLoginProtectionActive = false;
             ResetApplyState();
@@ -2824,6 +2917,7 @@ namespace HeelsDesignLinker
                 loginSinceUtc = DateTime.UtcNow;
                 isLoginProtectionActive = true;
                 ResetApplyState();
+                RestoreShutdownApplySnapshot();
                 // 插件在游戏内中途启用：立即重检依赖，避免等 2s 间隔或开面板后才 apply
                 RefreshDependencies(force: true);
             }
@@ -2894,6 +2988,9 @@ namespace HeelsDesignLinker
                 if (localPlayer == null || !localPlayer.IsValid())
                     return;
 
+                if (TryConsumeRestoredShutdownMatchSkip(""))
+                    return;
+
                 var noMatchAppliedAnything = false;
                 var noMatchConfigDirty = false;
                 appliedActionSummariesThisCycle.Clear();
@@ -2917,10 +3014,19 @@ namespace HeelsDesignLinker
                 return;
             }
 
+            if (IsBaselineBlockingRuleApply())
+            {
+                applyGateStatus = Localization.BaselineApplyWaiting;
+                return;
+            }
+
             if (localPlayer == null || !localPlayer.IsValid())
                 return;
 
             OnMatchedRuleSetChanged(activeRules, currentAppliedRuleIndices, matchedSignature, localPlayer);
+
+            if (TryConsumeRestoredShutdownMatchSkip(matchedSignature))
+                return;
 
             var appliedAnything = false;
             var configDirty = false;
@@ -2935,21 +3041,14 @@ namespace HeelsDesignLinker
             foreach (var appliedRule in appliedRules)
                 ruleActions.AddRange(GetRuleActions(appliedRule));
 
-            // 应用基准行动（如果启用）
-            if (Configuration.RuleSets.Count > 0 && 
-                Configuration.ActiveRuleSetIndex >= 0 && 
-                Configuration.ActiveRuleSetIndex < Configuration.RuleSets.Count)
+            // 应用基准行动（如果启用；已在上方门控，此处与规则同周期且必定先于规则行动）
+            if (TryGetActiveRuleSet(out var activeRuleSet) && activeRuleSet.UseBaselineActions)
             {
-                var activeRuleSet = Configuration.RuleSets[Configuration.ActiveRuleSetIndex];
-                if (activeRuleSet.UseBaselineActions)
-                {
-                    var newCount = UpdateBaselineConfigs(activeRuleSet);
-                    if (newCount > 0)
-                        PluginInterface.SavePluginConfig(Configuration);
+                var newCount = UpdateBaselineConfigs(activeRuleSet);
+                if (newCount > 0)
+                    PluginInterface.SavePluginConfig(Configuration);
 
-                    if (IsBaselineApplyAllowed())
-                        ApplyBaselineActions(activeRuleSet, matchedRule, ref appliedAnything);
-                }
+                ApplyBaselineActions(activeRuleSet, matchedRule, ref appliedAnything);
             }
 
             if (ApplyPenumbraActionsForRules(appliedRules, ref appliedAnything))
@@ -4463,7 +4562,17 @@ namespace HeelsDesignLinker
                     switch (action.Type)
                     {
                         case ActionType.Penumbra:
-                            if (!string.IsNullOrWhiteSpace(action.PenumbraModName))
+                            var penumbraGroup = action.PenumbraGroup;
+                            if (penumbraGroup != null && !string.IsNullOrWhiteSpace(penumbraGroup.PenumbraModName))
+                            {
+                                param = new BaselineParameterId
+                                {
+                                    Type = ActionType.Penumbra,
+                                    PenumbraCollection = penumbraGroup.PenumbraCollection,
+                                    PenumbraModName = penumbraGroup.PenumbraModName
+                                };
+                            }
+                            else if (!string.IsNullOrWhiteSpace(action.PenumbraModName))
                             {
                                 param = new BaselineParameterId
                                 {
@@ -4599,13 +4708,78 @@ namespace HeelsDesignLinker
         /// <summary>当前匹配规则是否已使用该基准参数（非 Penumbra；整条跳过）。</summary>
         private bool MatchedRuleUsesBaselineParameter(HeelsRule rule, BaselineParameterId param)
         {
-            foreach (var action in GetRuleActions(rule))
+            foreach (var action in EnumerateEffectiveRuleActions(rule))
             {
                 if (BaselineActionTargetsParameter(action, param))
                     return true;
             }
 
             return false;
+        }
+
+        private void RestoreShutdownApplySnapshot()
+        {
+            if (Configuration.LastShutdownActiveRuleSetIndex < 0)
+                return;
+
+            var signature = Configuration.LastShutdownMatchedRuleSignature ?? "";
+            lastMatchedSetSignature = signature;
+            stableTrackingSignature = signature;
+            lastAppliedMoodleKey = Configuration.LastShutdownAppliedMoodleKey ?? "";
+            lastAppliedHonorificJson = Configuration.LastShutdownLastAppliedHonorificJson ?? "";
+            lastAppliedActionKeys.Clear();
+            foreach (var key in Configuration.LastShutdownAppliedActionKeys ?? [])
+            {
+                if (!string.IsNullOrEmpty(key))
+                    lastAppliedActionKeys.Add(key);
+            }
+
+            skipReapplyForRestoredShutdownMatch = true;
+        }
+
+        private void PersistShutdownApplySnapshot()
+        {
+            Configuration.LastShutdownMatchedRuleSignature = lastMatchedSetSignature ?? "";
+            Configuration.LastShutdownActiveRuleSetIndex = Configuration.ActiveRuleSetIndex;
+            Configuration.LastShutdownAppliedMoodleKey = lastAppliedMoodleKey ?? "";
+            Configuration.LastShutdownLastAppliedHonorificJson = lastAppliedHonorificJson ?? "";
+            Configuration.LastShutdownAppliedActionKeys = lastAppliedActionKeys.ToList();
+            try
+            {
+                PluginInterface.SavePluginConfig(Configuration);
+            }
+            catch (Exception ex)
+            {
+                PluginLog.Warning($"Failed to persist shutdown apply snapshot: {ex.Message}");
+            }
+        }
+
+        private bool MatchesRestoredShutdownMatch(string matchedSignature)
+        {
+            if (Configuration.LastShutdownActiveRuleSetIndex != Configuration.ActiveRuleSetIndex)
+                return false;
+
+            return string.Equals(
+                matchedSignature ?? "",
+                Configuration.LastShutdownMatchedRuleSignature ?? "",
+                StringComparison.Ordinal);
+        }
+
+        private bool TryConsumeRestoredShutdownMatchSkip(string matchedSignature)
+        {
+            if (!skipReapplyForRestoredShutdownMatch)
+                return false;
+
+            if (!MatchesRestoredShutdownMatch(matchedSignature))
+            {
+                skipReapplyForRestoredShutdownMatch = false;
+                return false;
+            }
+
+            skipReapplyForRestoredShutdownMatch = false;
+            lastApplyUtc = DateTime.UtcNow;
+            applyGateStatus = Localization.SessionRestoredNoReapply;
+            return true;
         }
 
         private static bool PenumbraActionTargetsMod(HeelsRuleAction action, BaselineParameterId param) =>
@@ -4616,15 +4790,15 @@ namespace HeelsDesignLinker
                 StringComparison.OrdinalIgnoreCase);
 
         private bool MatchedRuleHasPenumbraActionsOnMod(HeelsRule rule, BaselineParameterId param) =>
-            GetRuleActions(rule).Any(action => PenumbraActionTargetsMod(action, param));
+            EnumerateEffectiveRuleActions(rule).Any(action => PenumbraActionTargetsMod(action, param));
 
         private bool MatchedRuleHasPenumbraOptionActionsOnMod(HeelsRule rule, BaselineParameterId param) =>
-            GetRuleActions(rule).Any(action =>
+            EnumerateEffectiveRuleActions(rule).Any(action =>
                 PenumbraActionTargetsMod(action, param)
                 && action.PenumbraActionKind == PenumbraActionKind.SetModOption);
 
         private bool MatchedRuleSetsPenumbraModEnabled(HeelsRule rule, BaselineParameterId param, bool enabled) =>
-            GetRuleActions(rule).Any(action =>
+            EnumerateEffectiveRuleActions(rule).Any(action =>
                 PenumbraActionTargetsMod(action, param)
                 && ((action.PenumbraActionKind == PenumbraActionKind.EnableMod && enabled)
                     || (action.PenumbraActionKind == PenumbraActionKind.DisableMod && !enabled)));
@@ -4655,7 +4829,7 @@ namespace HeelsDesignLinker
             if (string.IsNullOrWhiteSpace(optionGroup))
                 return result;
 
-            foreach (var action in GetRuleActions(rule))
+            foreach (var action in EnumerateEffectiveRuleActions(rule))
             {
                 if (action.PenumbraActionKind != PenumbraActionKind.SetModOption)
                     continue;
@@ -4684,7 +4858,7 @@ namespace HeelsDesignLinker
             if (string.IsNullOrWhiteSpace(optionSetting.PenumbraOptionName))
                 return false;
 
-            foreach (var action in GetRuleActions(rule))
+            foreach (var action in EnumerateEffectiveRuleActions(rule))
             {
                 if (action.PenumbraActionKind != PenumbraActionKind.SetModOption)
                     continue;
@@ -4967,10 +5141,9 @@ namespace HeelsDesignLinker
 
             foreach (var rule in ruleSet.Rules)
             {
-                foreach (var action in rule.Actions)
+                foreach (var action in FlattenRulePenumbraActions(rule))
                 {
-                    if (action.Type != ActionType.Penumbra
-                        || action.PenumbraActionKind != PenumbraActionKind.SetModOption
+                    if (action.PenumbraActionKind != PenumbraActionKind.SetModOption
                         || string.IsNullOrWhiteSpace(action.PenumbraOption))
                         continue;
 
@@ -6013,7 +6186,7 @@ namespace HeelsDesignLinker
                 onDeleteGroup: () =>
                 {
                     ActiveRules[ruleIndex].Actions.RemoveAt(actionIndex);
-                    SaveConfig();
+                    PersistRuleSetAfterActionMutation();
                 },
                 idPrefix: $"R{ruleIndex}G{actionIndex}",
                 groupReorderRuleIndex: ruleIndex,
@@ -7872,7 +8045,7 @@ namespace HeelsDesignLinker
                         if (actionToDeleteIndex < group.SubActions.Count)
                         {
                             group.SubActions.RemoveAt(actionToDeleteIndex);
-                            SaveConfig();
+                            PersistRuleSetAfterActionMutation();
                             deleted = true;
                         }
                     }
@@ -7889,7 +8062,7 @@ namespace HeelsDesignLinker
                                 if (sfwGroup.SubActions.Count == 0
                                     && Configuration.SfwModeActionGroups.All(g => g.SubActions.Count == 0))
                                     ClearSfwPenumbraApplyTracking();
-                                SaveConfig();
+                                PersistRuleSetAfterActionMutation();
                                 deleted = true;
                             }
                         }
@@ -7902,7 +8075,7 @@ namespace HeelsDesignLinker
                         if (actionToDeleteIndex < rule.Actions.Count)
                         {
                             rule.Actions.RemoveAt(actionToDeleteIndex);
-                            SaveConfig();
+                            PersistRuleSetAfterActionMutation();
                             deleted = true;
                         }
                     }
@@ -8778,34 +8951,24 @@ namespace HeelsDesignLinker
                 ImGui.EndCombo();
             }
 
-            DrawPenumbraGlamourerTakeoverControls(flatAction, idSuffix);
+            DrawPenumbraGlamourerTakeoverControls(flatAction, idSuffix, sub);
             sub.PenumbraOverwriteGlamourer = flatAction.PenumbraOverwriteGlamourer;
 
             if (sub.PenumbraActionKind == PenumbraActionKind.SetModOption)
             {
                 ImGui.SetNextItemWidth(-1);
-                DrawPenumbraOptionGroupSelector(idSuffix, flatAction, modDirectory);
-                sub.PenumbraOption = flatAction.PenumbraOption;
-                sub.PenumbraOptionName = flatAction.PenumbraOptionName;
-                sub.PenumbraOptionEnabled = flatAction.PenumbraOptionEnabled;
-                sub.PenumbraMultiToggleStates = new Dictionary<string, bool>(
-                    flatAction.PenumbraMultiToggleStates,
-                    StringComparer.OrdinalIgnoreCase);
+                DrawPenumbraOptionGroupSelector(idSuffix, flatAction, modDirectory, sub);
 
                 var groupType = _penumbraInterop.GetOptionGroupType(modDirectory, sub.PenumbraOption ?? "");
                 if (PenumbraInterop.UsesBoolOptionValue(groupType))
-                    DrawPenumbraMultiToggleList(idSuffix, flatAction, modDirectory);
+                    DrawPenumbraMultiToggleList(idSuffix, flatAction, modDirectory, sub);
                 else
                 {
                     ImGui.SetNextItemWidth(-1);
-                    DrawPenumbraOptionCombo(idSuffix, flatAction, modDirectory);
+                    DrawPenumbraOptionCombo(idSuffix, flatAction, modDirectory, sub);
                 }
 
-                sub.PenumbraOptionName = flatAction.PenumbraOptionName;
-                sub.PenumbraOptionEnabled = flatAction.PenumbraOptionEnabled;
-                sub.PenumbraMultiToggleStates = new Dictionary<string, bool>(
-                    flatAction.PenumbraMultiToggleStates,
-                    StringComparer.OrdinalIgnoreCase);
+                ApplyFlatPenumbraSubActionToSub(sub, flatAction);
             }
 
             ImGui.Unindent();
@@ -9534,7 +9697,10 @@ namespace HeelsDesignLinker
             return $"[{type}] {guid.Substring(0, Math.Min(8, guid.Length))}";
         }
 
-        private void DrawPenumbraGlamourerTakeoverControls(HeelsRuleAction action, string idSuffix)
+        private void DrawPenumbraGlamourerTakeoverControls(
+            HeelsRuleAction action,
+            string idSuffix,
+            PenumbraSubAction? syncSub = null)
         {
             // 仅外部 Glamourer 接管才需要授权覆盖；自己写入或本插件设计触发的接管不再提示。
             if (!IsPenumbraActionUnderGlamourerTakeover(action)
@@ -9557,7 +9723,7 @@ namespace HeelsDesignLinker
             if (ImGui.Checkbox($"{Localization.PenumbraOverwriteGlamourerAction}##OverwriteGlm{idSuffix}", ref overwriteGlamourer))
             {
                 action.PenumbraOverwriteGlamourer = overwriteGlamourer;
-                SaveConfig();
+                SavePenumbraSubActionEdit(syncSub, action);
             }
 
             if (ImGui.IsItemHovered())
@@ -9873,7 +10039,11 @@ namespace HeelsDesignLinker
                 || mod.Directory.Contains(term, StringComparison.OrdinalIgnoreCase)));
         }
 
-        private void DrawPenumbraOptionGroupSelector(string idSuffix, HeelsRuleAction action, string? penumbraModDirectoryOverride = null)
+        private void DrawPenumbraOptionGroupSelector(
+            string idSuffix,
+            HeelsRuleAction action,
+            string? penumbraModDirectoryOverride = null,
+            PenumbraSubAction? syncSub = null)
         {
             var modDirectory = penumbraModDirectoryOverride ?? action.PenumbraModName ?? "";
             var groups = _penumbraInterop.GetOptionGroups(modDirectory);
@@ -9916,7 +10086,7 @@ namespace HeelsDesignLinker
                                 action.PenumbraOption = group;
                                 action.PenumbraOptionName = "";
                                 action.PenumbraMultiToggleStates.Clear();
-                                SaveConfig();
+                                SavePenumbraSubActionEdit(syncSub, action);
                             }
                         }
 
@@ -9939,7 +10109,11 @@ namespace HeelsDesignLinker
             ImGui.TextDisabled(Localization.Option);
         }
 
-        private void DrawPenumbraOptionCombo(string idSuffix, HeelsRuleAction action, string? penumbraModDirectoryOverride = null)
+        private void DrawPenumbraOptionCombo(
+            string idSuffix,
+            HeelsRuleAction action,
+            string? penumbraModDirectoryOverride = null,
+            PenumbraSubAction? syncSub = null)
         {
             var modDirectory = penumbraModDirectoryOverride ?? action.PenumbraModName ?? "";
             var optionGroup = action.PenumbraOption ?? "";
@@ -9979,7 +10153,7 @@ namespace HeelsDesignLinker
                     if (ImGui.Selectable(Localization.SelectPenumbraOptionName, string.IsNullOrWhiteSpace(optionName)))
                     {
                         action.PenumbraOptionName = "";
-                        SaveConfig();
+                        SavePenumbraSubActionEdit(syncSub, action);
                     }
 
                     foreach (var option in options)
@@ -9987,7 +10161,7 @@ namespace HeelsDesignLinker
                         if (ImGui.Selectable(option, string.Equals(option, optionName, StringComparison.OrdinalIgnoreCase)))
                         {
                             action.PenumbraOptionName = option;
-                            SaveConfig();
+                            SavePenumbraSubActionEdit(syncSub, action);
                         }
                     }
                 }
@@ -9999,7 +10173,11 @@ namespace HeelsDesignLinker
             ImGui.TextDisabled(Localization.OptionName);
         }
 
-        private void DrawPenumbraMultiToggleList(string idSuffix, HeelsRuleAction action, string? penumbraModDirectoryOverride = null)
+        private void DrawPenumbraMultiToggleList(
+            string idSuffix,
+            HeelsRuleAction action,
+            string? penumbraModDirectoryOverride = null,
+            PenumbraSubAction? syncSub = null)
         {
             var modDirectory = penumbraModDirectoryOverride ?? action.PenumbraModName ?? "";
             var optionGroup = action.PenumbraOption ?? "";
@@ -10017,7 +10195,7 @@ namespace HeelsDesignLinker
             }
 
             if (SyncPenumbraMultiToggleStates(action, options))
-                SaveConfig();
+                SavePenumbraSubActionEdit(syncSub, action);
 
             ImGui.TextDisabled(Localization.PenumbraMultiToggleListLabel);
             if (ImGui.IsItemHovered())
@@ -10030,7 +10208,9 @@ namespace HeelsDesignLinker
                     option,
                     $"##PenumbraMultiToggle{idSuffix}{option}",
                     action.PenumbraMultiToggleStates,
-                    option);
+                    option,
+                    syncSub,
+                    action);
             }
 
             ImGui.Unindent();
@@ -10040,7 +10220,9 @@ namespace HeelsDesignLinker
             string optionLabel,
             string comboId,
             Dictionary<string, bool> toggleStates,
-            string optionKey)
+            string optionKey,
+            PenumbraSubAction? syncSub = null,
+            HeelsRuleAction? syncFlat = null)
         {
             var enabled = toggleStates.TryGetValue(optionKey, out var state) && state;
             var preview = enabled ? Localization.PenumbraOptionEnabled : Localization.PenumbraOptionDisabled;
@@ -10054,13 +10236,19 @@ namespace HeelsDesignLinker
                 if (ImGui.Selectable(Localization.PenumbraOptionEnabled, enabled))
                 {
                     toggleStates[optionKey] = true;
-                    SaveConfig();
+                    if (syncFlat != null)
+                        SavePenumbraSubActionEdit(syncSub, syncFlat);
+                    else
+                        SaveConfig();
                 }
 
                 if (ImGui.Selectable(Localization.PenumbraOptionDisabled, !enabled))
                 {
                     toggleStates[optionKey] = false;
-                    SaveConfig();
+                    if (syncFlat != null)
+                        SavePenumbraSubActionEdit(syncSub, syncFlat);
+                    else
+                        SaveConfig();
                 }
 
                 ImGui.EndCombo();
@@ -11503,6 +11691,7 @@ namespace HeelsDesignLinker
 
         public void Dispose()
         {
+            PersistShutdownApplySnapshot();
             ClientState.Logout -= OnLogout;
             Framework.Update -= OnFrameworkUpdate;
             CommandManager.RemoveHandler("/hdl");

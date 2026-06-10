@@ -816,6 +816,12 @@ namespace HeelsDesignLinker
             ? "在应用规则行动前管理各参数的默认状态（Penumbra / Glamourer / Moodles / Honorific）；当前规则已操作的参数会跳过" 
             : "Manage default parameter states before rule actions (Penumbra / Glamourer / Moodles / Honorific); skips parameters the matched rule handles";
         public static string BaselineActionsEnable => IsChine ? "启用基准行动系统" : "Enable Baseline Actions";
+        public static string BaselineApplyWaiting => IsChine
+            ? "等待基准行动就绪（先于规则行动 apply）…"
+            : "Waiting for baseline actions (apply before rule actions)…";
+        public static string SessionRestoredNoReapply => IsChine
+            ? "已恢复上次关闭时的命中状态，跳过基准与规则 re-apply"
+            : "Restored last shutdown match; skipping baseline and rule re-apply";
         public static string BaselineActionsEnableTooltip => IsChine 
             ? "启用后，在应用规则行动前先应用基准状态；当前匹配规则已操作的参数会跳过基准，仅对其余参数生效" 
             : "When enabled, baseline states are applied before rule actions; parameters already handled by the matched rule are skipped";
