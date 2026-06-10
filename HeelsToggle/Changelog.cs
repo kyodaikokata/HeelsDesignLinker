@@ -4,10 +4,19 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.4";
+        public const string CurrentVersion = "1.4.2.5";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.5",
+                "2026-06-10",
+                [
+                    "修复命中规则集合变化（如 1+3→1+4）时，重叠规则因去重键残留而未被 re-apply、仅新增规则生效的问题；变化后整组规则行动各 apply 一次",
+                ],
+                [
+                    "Fix overlapping rules skipped on set change (e.g. 1+3→1+4) when dedup keys lingered — all matched rules now apply once after the change",
+                ]),
             new(
                 "1.4.2.4",
                 "2026-06-10",

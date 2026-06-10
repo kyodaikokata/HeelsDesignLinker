@@ -2054,6 +2054,14 @@ namespace HeelsDesignLinker
                 ClearPenumbraTemporaryOverrides(forceRemove: true);
             }
 
+            if (hasMatch)
+            {
+                // 与 UpdateRuleMatchStability 双保险：apply 前确保整组规则行动各 apply 一次
+                ClearPenumbraApplyTracking();
+                lastAppliedHonorificJson = "";
+                lastAppliedMoodleKey = "";
+            }
+
             // 清除 Honorific（如果新命中集合中没有任何规则需要它）
             var hadHonorific = !string.IsNullOrEmpty(lastAppliedHonorificJson);
             var wantsHonorific = false;
@@ -2074,7 +2082,6 @@ namespace HeelsDesignLinker
                 _honorificInterop.TryClearLocalTitle(localPlayer, out _);
             }
 
-            // 注意：lastAppliedActionKeys 已经在 UpdateRuleMatchStability 中清除了
             lastMatchedSetSignature = newSignature;
             lastMatchedRuleIndex = hasMatch ? appliedIndices[0] : -1;
         }
@@ -2609,11 +2616,8 @@ namespace HeelsDesignLinker
 
         private void UpdateRuleMatchStability(string matchedSignature, bool hasMatch)
         {
-            if (stableTrackingSignature != null && matchedSignature == stableTrackingSignature)
-                return;
-
-            // 仅当「命中规则集合」相对上次已 apply 的集合发生变化时，才清临时层/去重/冷却。
-            // drawData 抖动只会把 stableTrackingSignature 置 null（强制重新计时），不应每秒清空 dedup。
+            // 命中集合相对上次已 apply 的集合变化时，须先清去重/冷却（不可被下方稳定计时 early-return 跳过）。
+            // 否则 1+3→1+4 等重叠规则场景下，仍留在 dedup 中的旧键会导致仅新增规则被 apply。
             if (matchedSignature != lastMatchedSetSignature)
             {
                 if (!hasMatch)
@@ -2630,6 +2634,9 @@ namespace HeelsDesignLinker
                     lastApplyUtc = DateTime.MinValue;
                 }
             }
+
+            if (stableTrackingSignature != null && matchedSignature == stableTrackingSignature)
+                return;
 
             stableTrackingSignature = matchedSignature;
             stableTrackingRuleIndex = hasMatch ? currentMatchedRuleIndex : -1;
