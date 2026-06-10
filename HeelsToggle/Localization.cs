@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace HeelsDesignLinker
@@ -297,6 +298,41 @@ namespace HeelsDesignLinker
         public static string PenumbraPriorityWarning => IsChine
             ? "本插件不会验证 Penumbra Mod 优先级，请在 Penumbra 中手动设置优先级。"
             : "This plugin does not verify Penumbra mod priority — set priorities manually in Penumbra.";
+        public static string GlamourerSlotConflictNote => IsChine
+            ? "本插件会按装备槽位检测 Glamourer 行动冲突，并按优先级应用（数值越大越优先、越后覆盖）；仅检测装备槽位实际是否被应用。"
+            : "This plugin checks Glamourer action conflicts by equipment slot and applies them by priority (higher value = higher priority, applied last and wins); only equipment slots actually applied are checked.";
+        public static string GlamourerPriorityLabel => IsChine ? "优先级" : "Priority";
+        public static string GlamourerPriorityTooltip => IsChine
+            ? "数值越大越优先：越后应用，冲突的装备槽位由高优先级胜出；非冲突槽位共存。"
+            : "Higher value = higher priority: applied later, wins on conflicting equipment slots; non-conflicting slots coexist.";
+        public static string GlamourerSlotConflictUnresolvedHint => IsChine
+            ? "未解决的装备槽位冲突：与另一个可同时应用的 Glamourer 行动在相同槽位冲突，且优先级相同（无法决定胜负）。请调整优先级。"
+            : "Unresolved equipment-slot conflict: collides with another co-applied Glamourer action on the same slot at equal priority. Adjust priorities.";
+        public static string GlamourerSlotConflictResolvedHint => IsChine
+            ? "已解决的装备槽位冲突：与另一个可同时应用的 Glamourer 行动在相同槽位冲突，但优先级不同，由高优先级胜出。"
+            : "Resolved equipment-slot conflict: collides with another co-applied Glamourer action on the same slot, but priorities differ so the higher one wins.";
+        public static string RuleConnectorPrefix => IsChine ? "-> 与下一条规则：" : "-> Link to next rule:";
+        public static string RuleConnectorAnd => IsChine ? "新分组（结束本组，独立共存）" : "New group (end this group, coexist)";
+        public static string RuleConnectorOr => IsChine ? "同一分组（if/否则如果/否则 链，互斥）" : "Same group (if/elseif/else chain, exclusive)";
+        public static string RuleConnectorAndTooltip => IsChine
+            ? "新分组：在此结束当前 if/否则如果/否则 分组，下一条规则开启一个独立的新分组。各分组相互独立、可同时命中并叠加应用（后匹配覆盖前匹配）。"
+            : "New group: end the current if/elseif/else group here; the next rule starts a separate group. Groups are independent, can all match, and apply on top of each other (later overrides earlier).";
+        public static string RuleConnectorOrTooltip => IsChine
+            ? "同一分组（默认）：下一条规则与本条属于同一 if/否则如果/否则 链，组内互斥（命中一条即止，否则兜底）。"
+            : "Same group (default): the next rule belongs to the same if/elseif/else chain; within a group the first match wins and 'else' is the fallback.";
+        public static string RuleGroupHeader(int ordinal) => IsChine ? $"分组 {ordinal}" : $"Group {ordinal}";
+        public static string RuleGroupHeaderTooltip => IsChine
+            ? "一个分组是一条独立的 if/否则如果/否则 链：组内互斥、首条命中即止、否则兜底。多个分组相互独立，可同时命中并叠加应用。"
+            : "A group is one independent if/elseif/else chain: exclusive within the group, first match wins, 'else' is the fallback. Multiple groups are independent and can all match and stack.";
+        public static string RuleGroupNameHint => IsChine ? "分组名称（可选）" : "Group name (optional)";
+        public static string RuleGroupNameTooltip => IsChine
+            ? "为该分组命名，便于识别（仅显示用途，不影响匹配）。"
+            : "Name this group for readability (display only; does not affect matching).";
+        public static string RuleGroupRuleCount(int count) => IsChine ? $"（{count} 条规则）" : $"({count} rule{(count == 1 ? "" : "s")})";
+        public static string ExpandGroupTooltip => IsChine ? "展开本分组" : "Expand this group";
+        public static string CollapseGroupTooltip => IsChine ? "折叠本分组（隐藏组内所有规则）" : "Collapse this group (hide all rules in it)";
+        public static string GroupDragHandleTooltip => IsChine ? "拖拽以整体调整分组顺序" : "Drag to reorder the whole group";
+        public static string GroupDragPreview(int order) => IsChine ? $"移动分组 #{order}" : $"Move group #{order}";
         public static string PerActionTypeHint => IsChine
             ? "每个行动可独立选择类型（Glamourer / Penumbra / Honorific / Moodles / SoundMixer），不再有全局模式。"
             : "Each action independently chooses its type (Glamourer / Penumbra / Honorific / Moodles / SoundMixer). There is no global mode.";
@@ -451,6 +487,14 @@ namespace HeelsDesignLinker
         public static string RulePenumbraMultiToggleConflictHint => IsChine
             ? "与同规则内其他 Penumbra 行动冲突：同一选项组内的子选项设置了相反的开关状态"
             : "Conflicts with another Penumbra action in this rule: opposite toggle states for the same sub-option";
+        public static string RulePenumbraMatchedRuleConflictHint => IsChine
+            ? "与其它命中规则的 Penumbra 行动在同一 Mod 上冲突（按列表顺序后覆盖前）"
+            : "Conflicts with a Penumbra action in another matched rule on the same mod (later rule overrides earlier)";
+        public static string RulePenumbraConflictWithActions(IEnumerable<int> actionNumbers)
+        {
+            var list = string.Join("、", actionNumbers);
+            return IsChine ? $"（与行动 {list} 冲突）" : $"(conflicts with action {list})";
+        }
         public static string Save => IsChine ? "保存" : "Save";
         
         public static string CurrentMatchedRule => IsChine ? "当前匹配规则" : "Current Matched Rule";

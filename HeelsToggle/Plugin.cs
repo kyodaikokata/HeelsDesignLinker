@@ -593,6 +593,7 @@ namespace HeelsDesignLinker
         public bool PenumbraOptionEnabled { get; set; } = true;
         public Dictionary<string, bool> PenumbraMultiToggleStates { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public bool PenumbraOverwriteGlamourer { get; set; } = false;
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Include)]
         public bool IsCollapsed { get; set; } = false;
     }
 
@@ -601,6 +602,7 @@ namespace HeelsDesignLinker
     {
         public string PenumbraCollection { get; set; } = "Default";
         public string PenumbraModName { get; set; } = "";
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Include)]
         public bool IsCollapsed { get; set; } = false;
         public List<PenumbraSubAction> SubActions { get; set; } = new();
 
@@ -616,6 +618,9 @@ namespace HeelsDesignLinker
 
         /// <summary>Glamourer: Design GUID。</summary>
         public string GlamourerDesign { get; set; } = "";
+
+        /// <summary>Glamourer 行动优先级：数值越大越优先（越后应用、冲突槽位胜出）。仅 Glamourer 类型使用。</summary>
+        public int GlamourerPriority { get; set; } = 0;
 
         /// <summary>Penumbra 行动组（Type == Penumbra 时使用）。</summary>
         public PenumbraActionGroup? PenumbraGroup { get; set; }
@@ -653,6 +658,7 @@ namespace HeelsDesignLinker
         public int SoundMixerPriority { get; set; } = SoundMixerInterop.DefaultPriority;
 
         /// <summary>规则 UI 中是否折叠该行动详情。</summary>
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Include)]
         public bool IsActionCollapsed { get; set; }
     }
 
@@ -662,9 +668,24 @@ namespace HeelsDesignLinker
         public string Name { get; set; } = "";
         
         /// <summary>规则是否折叠（UI状态）。</summary>
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Include)]
         public bool IsCollapsed { get; set; } = false;
         
         public RuleBranchKind BranchKind { get; set; } = RuleBranchKind.ElseIf;
+
+        /// <summary>
+        /// 与「下一条规则」的连接关系（即分组边界）：
+        /// Or（默认）= 同一分组（同一 if/否则如果/否则 链，组内互斥、first-match、否则兜底）；
+        /// And = 结束本分组并让下一条开启新分组（分组之间相互独立、共存叠加应用）。
+        /// </summary>
+        public LogicOperator OperatorToNext { get; set; } = LogicOperator.Or;
+
+        /// <summary>分组名称：仅在该规则是其分组的第一条时生效（用于分组头显示）。</summary>
+        public string GroupName { get; set; } = "";
+
+        /// <summary>分组是否整体折叠：仅在该规则是其分组的第一条时生效（折叠后隐藏组内所有规则）。</summary>
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Include)]
+        public bool GroupCollapsed { get; set; } = false;
         
         /// <summary>新版条件组（支持多条件和 AND/OR），支持多个条件组。</summary>
         public List<ConditionGroup> ConditionGroups { get; set; } = new();
@@ -700,7 +721,8 @@ namespace HeelsDesignLinker
         
         public bool IsActive { get; set; } = true;
         
-        /// <summary>行动列表是否折叠显示（UI 状态）。</summary>
+        /// <summary>行动列表是否折叠显示（UI 状态，已合并至 <see cref="IsCollapsed"/>，仅用于旧配置迁移）。</summary>
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Include)]
         public bool IsActionsCollapsed { get; set; }
     }
 
@@ -748,11 +770,51 @@ namespace HeelsDesignLinker
                 ? Configuration.RuleSets[Configuration.ActiveRuleSetIndex].Rules
                 : new List<HeelsRule>();
 
+        /// <summary>该规则索引本帧是否被命中并应用（含主规则与 AND 共存附加规则）。</summary>
+        private bool IsRuleApplied(int ruleIndex) => currentAppliedRuleIndices.Contains(ruleIndex);
+
+        /// <summary>该规则是否是其分组（OR 块）的第一条：列表首条，或上一条连接符为 And（开启新分组）。</summary>
+        private bool IsRuleGroupStart(int ruleIndex)
+        {
+            var rules = ActiveRules;
+            return ruleIndex == 0
+                || (ruleIndex - 1 >= 0 && ruleIndex - 1 < rules.Count
+                    && rules[ruleIndex - 1].OperatorToNext == LogicOperator.And);
+        }
+
+        /// <summary>该规则之后、在同一分组内是否还存在已启用的规则（用于判断“否则”是否让组内后续规则不可达）。</summary>
+        private bool HasActiveRuleLaterInSameGroup(int ruleIndex)
+        {
+            var rules = ActiveRules;
+            for (var j = ruleIndex; j < rules.Count - 1; j++)
+            {
+                // j 与 j+1 之间为 And → 分组在此结束，后续规则属于新分组。
+                if (rules[j].OperatorToNext == LogicOperator.And)
+                    return false;
+
+                if (rules[j + 1].IsActive)
+                    return true;
+            }
+
+            return false;
+        }
+
         private static readonly Vector4 RuleUnreachableWarningColor = new(1.0f, 0.85f, 0.2f, 1.0f);
         private static readonly Vector4 RulePenumbraConflictWarningColor = new(1.0f, 0.55f, 0.15f, 1.0f);
         private static readonly Vector4 RuleConditionConflictColor = new(1.0f, 0.35f, 0.35f, 1.0f);
         private static readonly Vector4 MatchedRuleStatusColor = new(0.4f, 1.0f, 0.5f, 1.0f);
         private static readonly Vector4 PenumbraGlamourerTakeoverWarningColor = new(1.0f, 0.92f, 0.2f, 1.0f);
+        private static readonly Vector4 GlamourerSlotConflictUnresolvedColor = new(1.0f, 0.3f, 0.3f, 1.0f);
+        private static readonly Vector4 GlamourerSlotConflictResolvedColor = new(0.4f, 0.7f, 1.0f, 1.0f);
+
+        // Glamourer 装备槽位冲突分析结果（(规则索引, 行动索引) → 冲突状态），节流刷新。
+        private Dictionary<(int RuleIndex, int ActionIndex), GlamourerConflictKind> glamourerConflicts = new();
+        private DateTime glamourerConflictsComputedUtc = DateTime.MinValue;
+        private static readonly TimeSpan GlamourerConflictRefreshInterval = TimeSpan.FromSeconds(1);
+
+        // 当前命中的可共存(AND)规则之间，在同一 Mod 上存在 Penumbra 选项冲突的 Mod 键集合（Collection|Mod），节流刷新。
+        private HashSet<string> matchedModConflicts = new(StringComparer.OrdinalIgnoreCase);
+        private DateTime matchedModConflictsComputedUtc = DateTime.MinValue;
         
         private bool drawConfigUi = false;
         private static readonly TimeSpan PenumbraUnverifiedRetryInterval = TimeSpan.FromSeconds(2);
@@ -778,6 +840,12 @@ namespace HeelsDesignLinker
         private readonly List<string> lastExecutedActionSummaries = new();
         private readonly List<string> appliedActionSummariesThisCycle = new();
         private int lastMatchedRuleIndex = -1;
+        // 当前帧命中并将被应用的全部规则索引（按列表顺序；含主规则与 AND 共存的附加规则）。
+        private readonly List<int> currentAppliedRuleIndices = new();
+        // 上次「已应用」的命中规则集合签名（用于检测集合变化并重算覆盖/去重）。
+        private string lastMatchedSetSignature = "";
+        // 用于稳定性计时的命中集合签名；null 表示需要重新计时（如高度/外观抖动）。
+        private string? stableTrackingSignature = null;
         private float currentHeelsHeight = 0f;
         private float currentHeelsDefaultHeight = 0f;
         private float currentHeelsActualHeight = 0f;
@@ -801,6 +869,7 @@ namespace HeelsDesignLinker
         private int? _actionDragSourceRuleIndex;
         private int? _actionDragSourceIndex;
         private int? _actionDragTargetIndex;
+        private bool _actionDropAfter;
         
         // 条件删除相关
         private int conditionToDeleteRuleIndex = -1;
@@ -882,10 +951,14 @@ namespace HeelsDesignLinker
         private string lastFeetWarningSignature = "";
         private int? _ruleDragSourceIndex;
         private int? _ruleDragTargetIndex;
+        private bool _ruleDropAfter;
+        private int? _groupDragSourceIndex;
+        private int? _groupDragTargetIndex;
+        private bool _groupDropAfter;
         private bool restoreDefaultsPending;
         private bool wasSettingsTabActive;
         private const string KoFiUrl = "https://ko-fi.com/kokatakyodai";
-        private const int ConfigSchemaVersion = 18;
+        private const int ConfigSchemaVersion = 20;
         private const int SfwGroupRuleIndexBase = -2;
         private const int PenumbraSubHostRuleIndexBase = -100000;
         private const int PenumbraSubHostRuleIndexStride = 1000;
@@ -1110,6 +1183,17 @@ namespace HeelsDesignLinker
                 if (Configuration.Version < 18)
                 {
                     MigrateAllPenumbraActionsToGroupsIfNeeded();
+                }
+                if (Configuration.Version < 19)
+                {
+                    // v19: 规则间 AND/OR 连接符（HeelsRule.OperatorToNext，默认 Or）
+                    // 与 Glamourer 行动优先级（GlamourerPriority，默认 0）。
+                    // 均使用类型默认值，旧配置行为不变，无需数据迁移。
+                }
+                if (Configuration.Version < 20)
+                {
+                    // v20: 规则/行动折叠状态持久化修复（Penumbra 组与 IsActionCollapsed 同步、旧 IsActionsCollapsed 迁移）。
+                    NormalizeCollapsePersistence();
                 }
                 Configuration.Version = ConfigSchemaVersion;
                 PluginInterface.SavePluginConfig(Configuration);
@@ -1467,6 +1551,43 @@ namespace HeelsDesignLinker
             }
         }
 
+        /// <summary>
+        /// 统一规则/行动折叠状态：旧版 IsActionsCollapsed 合并到 IsCollapsed；
+        /// Penumbra 行动组 IsCollapsed 与外层 IsActionCollapsed 双向对齐。
+        /// </summary>
+        private void NormalizeCollapsePersistence()
+        {
+            foreach (var ruleSet in Configuration.RuleSets)
+            {
+                foreach (var rule in ruleSet.Rules)
+                {
+                    if (rule.IsActionsCollapsed && !rule.IsCollapsed)
+                        rule.IsCollapsed = true;
+
+                    foreach (var action in rule.Actions ?? [])
+                    {
+                        if (action.Type != ActionType.Penumbra)
+                            continue;
+
+                        var group = action.PenumbraGroup;
+                        if (group == null)
+                            continue;
+
+                        var collapsed = action.IsActionCollapsed || group.IsCollapsed;
+                        action.IsActionCollapsed = collapsed;
+                        group.IsCollapsed = collapsed;
+                    }
+                }
+            }
+        }
+
+        private static void SyncPenumbraActionCollapse(HeelsRuleAction action, PenumbraActionGroup group)
+        {
+            var collapsed = action.IsActionCollapsed || group.IsCollapsed;
+            action.IsActionCollapsed = collapsed;
+            group.IsCollapsed = collapsed;
+        }
+
         private void ClearPenumbraGroupSubActionOptions(PenumbraActionGroup group)
         {
             foreach (var sub in group.SubActions)
@@ -1816,14 +1937,21 @@ namespace HeelsDesignLinker
             return trimmed;
         }
 
-        private void OnMatchedRuleIndexChanged(int newRuleIndex, HeelsRule? newRule, IPlayerCharacter? localPlayer)
+        private void OnMatchedRuleSetChanged(
+            List<HeelsRule> activeRules,
+            List<int> appliedIndices,
+            string newSignature,
+            IPlayerCharacter? localPlayer)
         {
-            if (newRuleIndex == lastMatchedRuleIndex)
+            if (newSignature == lastMatchedSetSignature)
                 return;
+
+            var hadMatch = !string.IsNullOrEmpty(lastMatchedSetSignature);
+            var hasMatch = appliedIndices.Count > 0;
 
             ClearSoundMixerTemporaryOverrides();
 
-            if (newRuleIndex < 0)
+            if (!hasMatch)
             {
                 ClearPenumbraTemporaryOverrides();
                 ClearPenumbraApplyTracking();
@@ -1831,15 +1959,24 @@ namespace HeelsDesignLinker
                 lastAppliedMoodleKey = "";
                 lastApplyUtc = DateTime.MinValue;
             }
-            else if (lastMatchedRuleIndex >= 0)
+            else if (hadMatch)
             {
-                // 规则 A → 规则 B：先清 -1211，再 apply；本周期 batch 禁止合并旧临时选项组
+                // 命中集合 A → B：先清 -1211，再 apply；本周期 batch 禁止合并旧临时选项组
                 ClearPenumbraTemporaryOverrides(forceRemove: true);
             }
 
-            // 清除Honorific（如果新规则不需要）
+            // 清除 Honorific（如果新命中集合中没有任何规则需要它）
             var hadHonorific = !string.IsNullOrEmpty(lastAppliedHonorificJson);
-            var wantsHonorific = newRule != null && RuleUsesHonorific(newRule);
+            var wantsHonorific = false;
+            foreach (var idx in appliedIndices)
+            {
+                if (idx >= 0 && idx < activeRules.Count && RuleUsesHonorific(activeRules[idx]))
+                {
+                    wantsHonorific = true;
+                    break;
+                }
+            }
+
             if (hadHonorific
                 && !wantsHonorific
                 && localPlayer != null
@@ -1849,14 +1986,64 @@ namespace HeelsDesignLinker
             }
 
             // 注意：lastAppliedActionKeys 已经在 UpdateRuleMatchStability 中清除了
-            lastMatchedRuleIndex = newRuleIndex;
+            lastMatchedSetSignature = newSignature;
+            lastMatchedRuleIndex = hasMatch ? appliedIndices[0] : -1;
+        }
+
+        /// <summary>
+        /// 计算本帧命中并将被应用的规则索引集合（按列表顺序）。
+        /// 规则间连接符：Or（默认）= 互斥（同一 OR 块 first-match-wins）；And = 共存（开新独立块继续匹配并叠加）。
+        /// 旧配置全为 Or → 等价于原有 first-match-then-break 行为。
+        /// </summary>
+        private void CollectAppliedRuleIndices(List<HeelsRule> rules, float height, List<int> result)
+        {
+            result.Clear();
+            var blockMatched = false;
+            for (var i = 0; i < rules.Count; i++)
+            {
+                var independent = i == 0 || rules[i - 1].OperatorToNext == LogicOperator.And;
+                if (independent)
+                    blockMatched = false;
+
+                if (blockMatched)
+                    continue; // 同一 OR 块内已命中 → 互斥跳过
+
+                if (TryMatchRule(rules[i], i, height, allowEquipmentEvaluation: true))
+                {
+                    result.Add(i);
+                    blockMatched = true;
+                }
+            }
+        }
+
+        private static string BuildMatchedSetSignature(List<int> appliedIndices)
+        {
+            if (appliedIndices.Count == 0)
+                return "";
+            return string.Join(",", appliedIndices);
         }
 
         private static void FixMisplacedElseBranches(List<HeelsRule> rules)
         {
-            for (var i = 0; i < rules.Count - 1; i++)
+            // 分组首条必须是“如果”（条件分支）：它是全局首条，或上一条连接符为 And（开启新分组）。
+            // “否则”只能作为其分组的最后一条：它是全局最后一条，或其连接符为 And（结束本分组）。
+            // 处于分组中间（连接符为 Or 且非全局末尾）的否则会让组内后续规则不可达，降级为“否则如果”。
+            for (var i = 0; i < rules.Count; i++)
             {
-                if (rules[i].BranchKind == RuleBranchKind.Else)
+                var isGroupStart = i == 0 || rules[i - 1].OperatorToNext == LogicOperator.And;
+                if (isGroupStart)
+                {
+                    // 分组首条不能是“否则”（否则会无条件命中）；统一规整为“如果”（即 ElseIf 条件分支，UI 渲染为“如果”）。
+                    if (rules[i].BranchKind == RuleBranchKind.Else)
+                        rules[i].BranchKind = RuleBranchKind.ElseIf;
+                    continue;
+                }
+
+                if (rules[i].BranchKind != RuleBranchKind.Else)
+                    continue;
+
+                var isLastInGroup = i == rules.Count - 1 || rules[i].OperatorToNext == LogicOperator.And;
+                if (!isLastInGroup)
                     rules[i].BranchKind = RuleBranchKind.ElseIf;
             }
         }
@@ -2097,6 +2284,9 @@ namespace HeelsDesignLinker
             lastAppliedMoodleKey = "";
             lastMatchedRuleIndex = -1;
             stableTrackingRuleIndex = -1;
+            currentAppliedRuleIndices.Clear();
+            lastMatchedSetSignature = "";
+            stableTrackingSignature = null;
             ruleMatchStableSinceUtc = null;
             lastRuleMatchingHeight = float.NaN;
             lastTempOffsetSeenUtc = null;
@@ -2300,16 +2490,16 @@ namespace HeelsDesignLinker
             penumbraApplyAttemptUtcByKey.TryGetValue(applyKey, out var lastAttempt)
             && DateTime.UtcNow - lastAttempt < PenumbraUnverifiedRetryInterval;
 
-        private void UpdateRuleMatchStability(int matchedRuleIndex)
+        private void UpdateRuleMatchStability(string matchedSignature, bool hasMatch)
         {
-            if (matchedRuleIndex == stableTrackingRuleIndex)
+            if (stableTrackingSignature != null && matchedSignature == stableTrackingSignature)
                 return;
 
-            // 仅当「匹配到的规则」相对上次已 apply 的规则发生变化时，才清临时层/去重/冷却。
-            // drawData 抖动只会重置 stableTrackingRuleIndex=-1，不应每秒清空 dedup 导致 Enable 重复 apply。
-            if (matchedRuleIndex != lastMatchedRuleIndex)
+            // 仅当「命中规则集合」相对上次已 apply 的集合发生变化时，才清临时层/去重/冷却。
+            // drawData 抖动只会把 stableTrackingSignature 置 null（强制重新计时），不应每秒清空 dedup。
+            if (matchedSignature != lastMatchedSetSignature)
             {
-                if (matchedRuleIndex < 0)
+                if (!hasMatch)
                 {
                     // 短暂无匹配：不清 Penumbra 临时层（避免闪回永久 Shoes），保留 dedup
                     ClearSoundMixerTemporaryOverrides();
@@ -2324,7 +2514,8 @@ namespace HeelsDesignLinker
                 }
             }
 
-            stableTrackingRuleIndex = matchedRuleIndex;
+            stableTrackingSignature = matchedSignature;
+            stableTrackingRuleIndex = hasMatch ? currentMatchedRuleIndex : -1;
             ruleMatchStableSinceUtc = DateTime.UtcNow;
         }
 
@@ -2657,6 +2848,7 @@ namespace HeelsDesignLinker
             if (matchingHeightChanged || appearanceChanged)
             {
                 stableTrackingRuleIndex = -1;
+                stableTrackingSignature = null;
                 ruleMatchStableSinceUtc = null;
             }
 
@@ -2669,22 +2861,13 @@ namespace HeelsDesignLinker
             if (!IsSessionReadyForRules(out applyGateStatus))
                 return;
 
-            HeelsRule? matchedRule = null;
-            currentMatchedRuleIndex = -1;
-
             var activeRules = ActiveRules;
-            for (int i = 0; i < activeRules.Count; i++)
-            {
-                var rule = activeRules[i];
-                if (TryMatchRule(rule, i, currentHeelsHeight, allowEquipmentEvaluation: true))
-                {
-                    currentMatchedRuleIndex = i;
-                    matchedRule = rule;
-                    break;
-                }
-            }
+            CollectAppliedRuleIndices(activeRules, currentHeelsHeight, currentAppliedRuleIndices);
+            currentMatchedRuleIndex = currentAppliedRuleIndices.Count > 0 ? currentAppliedRuleIndices[0] : -1;
+            HeelsRule? matchedRule = currentMatchedRuleIndex >= 0 ? activeRules[currentMatchedRuleIndex] : null;
+            var matchedSignature = BuildMatchedSetSignature(currentAppliedRuleIndices);
 
-            UpdateRuleMatchStability(currentMatchedRuleIndex);
+            UpdateRuleMatchStability(matchedSignature, currentAppliedRuleIndices.Count > 0);
 
             var localPlayer = ObjectTable.LocalPlayer;
 
@@ -2696,7 +2879,7 @@ namespace HeelsDesignLinker
                     return;
                 }
 
-                OnMatchedRuleIndexChanged(-1, null, localPlayer);
+                OnMatchedRuleSetChanged(activeRules, currentAppliedRuleIndices, "", localPlayer);
 
                 if (localPlayer == null || !localPlayer.IsValid())
                     return;
@@ -2727,12 +2910,20 @@ namespace HeelsDesignLinker
             if (localPlayer == null || !localPlayer.IsValid())
                 return;
 
-            OnMatchedRuleIndexChanged(currentMatchedRuleIndex, matchedRule, localPlayer);
+            OnMatchedRuleSetChanged(activeRules, currentAppliedRuleIndices, matchedSignature, localPlayer);
 
             var appliedAnything = false;
             var configDirty = false;
             appliedActionSummariesThisCycle.Clear();
-            var ruleActions = GetRuleActions(matchedRule);
+
+            // 收集本周期全部命中规则（主规则 + AND 共存附加规则），按列表顺序（后覆盖前）。
+            var appliedRules = new List<HeelsRule>(currentAppliedRuleIndices.Count);
+            foreach (var appliedIndex in currentAppliedRuleIndices)
+                appliedRules.Add(activeRules[appliedIndex]);
+
+            var ruleActions = new List<HeelsRuleAction>();
+            foreach (var appliedRule in appliedRules)
+                ruleActions.AddRange(GetRuleActions(appliedRule));
 
             // 应用基准行动（如果启用）
             if (Configuration.RuleSets.Count > 0 && 
@@ -2751,16 +2942,18 @@ namespace HeelsDesignLinker
                 }
             }
 
-            if (ApplyPenumbraActionsForRule(matchedRule, ref appliedAnything))
+            if (ApplyPenumbraActionsForRules(appliedRules, ref appliedAnything))
                 configDirty = true;
+
+            // Glamourer：按优先级升序应用（数值大者最后写入，冲突槽位胜出；非冲突槽位共存）
+            ApplyGlamourerActionsWithPriority(ruleActions, ref appliedAnything);
 
             foreach (var action in ruleActions)
             {
                 switch (action.Type)
                 {
                     case ActionType.Glamourer:
-                        ApplyGlamourerAction(action, ref appliedAnything);
-                        break;
+                        break; // 已由 ApplyGlamourerActionsWithPriority 统一按优先级处理
                     case ActionType.Penumbra:
                         break;
                     case ActionType.Honorific:
@@ -2906,6 +3099,98 @@ namespace HeelsDesignLinker
                 return false;
 
             return IsPenumbraModUnderGlamourerTakeover(action.PenumbraModName ?? "");
+        }
+
+        /// <summary>
+        /// 该 Mod 的临时层覆盖是否“来自自己”：本插件 key 直接写入（-1211/-1210），
+        /// 或由当前命中规则中的某个 Glamourer 设计行动间接让 Glamourer 接管（设计关联了该 Mod）。
+        /// </summary>
+        private bool IsPenumbraModSelfManaged(string modDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(modDirectory))
+                return false;
+
+            var playerIndex = GetLocalPlayerObjectIndex();
+            if (playerIndex == null)
+                return false;
+
+            var owner = _penumbraInterop.GetModTemporaryOverrideOwner(playerIndex.Value, modDirectory);
+            return owner switch
+            {
+                PenumbraInterop.PenumbraModTempOverrideOwner.Self => true,
+                PenumbraInterop.PenumbraModTempOverrideOwner.Glamourer => DoesMatchedGlamourerDesignLinkMod(modDirectory),
+                _ => false,
+            };
+        }
+
+        /// <summary>当前命中的规则里，是否有 Glamourer 设计行动关联（Mod Associations）了该 Penumbra Mod。</summary>
+        private bool DoesMatchedGlamourerDesignLinkMod(string modDirectory)
+        {
+            var dir = modDirectory.Trim();
+            var rules = ActiveRules;
+            foreach (var idx in currentAppliedRuleIndices)
+            {
+                if (idx < 0 || idx >= rules.Count)
+                    continue;
+
+                foreach (var action in GetRuleActions(rules[idx]))
+                {
+                    if (action.Type != ActionType.Glamourer || string.IsNullOrWhiteSpace(action.GlamourerDesign))
+                        continue;
+
+                    var mods = _glamourerInterop.GetDesignAssociatedModDirectoriesByName(action.GlamourerDesign);
+                    if (mods != null && mods.Contains(dir))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static string BuildMatchedModConflictKey(string? collection, string? modName) =>
+            $"{(string.IsNullOrWhiteSpace(collection) ? "Default" : collection.Trim())}|{(modName ?? "").Trim()}";
+
+        /// <summary>当前命中的可共存规则之间，是否在该 Mod 上存在 Penumbra 选项冲突。</summary>
+        private bool DoMatchedRulesConflictOnMod(string? collection, string? modName) =>
+            matchedModConflicts.Contains(BuildMatchedModConflictKey(collection, modName));
+
+        private void RefreshMatchedModConflictsIfNeeded()
+        {
+            if (DateTime.UtcNow - matchedModConflictsComputedUtc < GlamourerConflictRefreshInterval)
+                return;
+
+            matchedModConflictsComputedUtc = DateTime.UtcNow;
+            matchedModConflicts = ComputeMatchedModConflicts();
+        }
+
+        private HashSet<string> ComputeMatchedModConflicts()
+        {
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var rules = ActiveRules;
+
+            var actions = new List<HeelsRuleAction>();
+            foreach (var idx in currentAppliedRuleIndices)
+            {
+                if (idx < 0 || idx >= rules.Count)
+                    continue;
+
+                actions.AddRange(GetRuleActions(rules[idx]).Where(a => a.Type == ActionType.Penumbra));
+            }
+
+            if (actions.Count == 0)
+                return result;
+
+            var conflicts = RulePenumbraActionAnalysis.Analyze(
+                actions,
+                (mod, option) => _penumbraInterop.GetOptionGroupType(mod, option));
+
+            foreach (var index in conflicts.Keys)
+            {
+                var action = actions[index];
+                result.Add(BuildMatchedModConflictKey(action.PenumbraCollection, action.PenumbraModName));
+            }
+
+            return result;
         }
 
         private bool ShouldOverwriteGlamourerForPenumbraAction(HeelsRuleAction action) =>
@@ -3635,9 +3920,18 @@ namespace HeelsDesignLinker
             }
         }
 
-        private bool ApplyPenumbraActionsForRule(HeelsRule rule, ref bool appliedAnything)
+        private bool ApplyPenumbraActionsForRule(HeelsRule rule, ref bool appliedAnything) =>
+            ApplyPenumbraActionsForRules(new List<HeelsRule> { rule }, ref appliedAnything);
+
+        /// <summary>
+        /// 合并多条命中规则的 Penumbra 行动后统一应用（按规则顺序，后覆盖前由 Core 去重处理）。
+        /// </summary>
+        private bool ApplyPenumbraActionsForRules(List<HeelsRule> rules, ref bool appliedAnything)
         {
-            var penumbraActions = FlattenRulePenumbraActions(rule).Where(ActionUsesPenumbra).ToList();
+            var penumbraActions = new List<HeelsRuleAction>();
+            foreach (var rule in rules)
+                penumbraActions.AddRange(FlattenRulePenumbraActions(rule).Where(ActionUsesPenumbra));
+
             if (Configuration.SfwModeActive)
             {
                 var sfwMods = GetSfwCoveredModKeys();
@@ -3647,6 +3941,26 @@ namespace HeelsDesignLinker
             }
 
             return ApplyPenumbraActionsCore(penumbraActions, PenumbraApplyLayerConfig.Rule, ref appliedAnything);
+        }
+
+        /// <summary>
+        /// 按 Glamourer 优先级（GlamourerPriority 升序，相等保持原顺序）应用所有 Glamourer 行动。
+        /// 数值越大越后写入，冲突装备槽位由高优先级胜出；非冲突槽位天然共存（Glamourer 为部分应用）。
+        /// </summary>
+        private void ApplyGlamourerActionsWithPriority(List<HeelsRuleAction> actions, ref bool appliedAnything)
+        {
+            var glamourerActions = actions.Where(ActionUsesGlamourer).ToList();
+            if (glamourerActions.Count == 0)
+                return;
+
+            var ordered = glamourerActions
+                .Select((action, index) => (action, index))
+                .OrderBy(t => t.action.GlamourerPriority)
+                .ThenBy(t => t.index)
+                .Select(t => t.action);
+
+            foreach (var action in ordered)
+                ApplyGlamourerAction(action, ref appliedAnything);
         }
 
         private bool ApplySfwModePenumbraActions(ref bool appliedAnything)
@@ -3851,12 +4165,19 @@ namespace HeelsDesignLinker
                             StringComparison.OrdinalIgnoreCase))
                         continue;
 
+                    var optionGroup = action.PenumbraOption ?? "";
+                    var optionNames = GetPenumbraSingleSelectTargetNames(action);
+
+                    // 不传入空值：未指定具体选项（空名）的单选组视为“不改动该组”，跳过写入，
+                    // 避免该组以空值覆盖 Collection 基线 / 同 Mod 其它命中规则已指定好的选项。
+                    if (string.IsNullOrWhiteSpace(optionGroup) || optionNames.Count == 0)
+                        continue;
+
                     var applyKey = BuildPenumbraActionKey(action);
                     var summary = DescribePenumbraActionSummary(action);
                     Func<bool?> compare = () => ComparePenumbraOptionActionState(action, playerIndex);
-                    var optionNames = GetPenumbraSingleSelectTargetNames(action);
 
-                    optionOverrides[action.PenumbraOption ?? ""] = optionNames;
+                    optionOverrides[optionGroup] = optionNames;
                     trackedApplies.Add((applyKey, summary, compare));
                 }
 
@@ -4042,6 +4363,11 @@ namespace HeelsDesignLinker
 
             foreach (var action in singleSelectByGroup.Values)
             {
+                // 不传入空值：未指定具体选项（空名）的单选组视为“不改动该组”，跳过。
+                if (string.IsNullOrWhiteSpace(action.PenumbraOption)
+                    || GetPenumbraSingleSelectTargetNames(action).Count == 0)
+                    continue;
+
                 var applyKey = BuildPenumbraActionKey(action);
                 var singleSummary = DescribePenumbraActionSummary(action);
                 Func<bool?> compareSingleState = () => ComparePenumbraOptionActionState(action, playerIndex);
@@ -4801,6 +5127,8 @@ namespace HeelsDesignLinker
             lastAppliedMoodleKey = "";
             lastMatchedRuleIndex = -1;
             stableTrackingRuleIndex = -1;
+            lastMatchedSetSignature = "";
+            stableTrackingSignature = null;
             ruleMatchStableSinceUtc = null;
             lastRuleMatchingHeight = float.NaN;
         }
@@ -4875,6 +5203,8 @@ namespace HeelsDesignLinker
             {
                 _ruleDragSourceIndex = null;
                 _ruleDragTargetIndex = null;
+                _groupDragSourceIndex = null;
+                _groupDragTargetIndex = null;
                 _actionDragSourceRuleIndex = null;
                 _actionDragSourceIndex = null;
                 _actionDragTargetIndex = null;
@@ -5262,12 +5592,16 @@ namespace HeelsDesignLinker
                 ? currentHeelsHeight.ToString($"F{Configuration.DecimalPrecision}")
                 : "-";
 
-            if (currentMatchedRuleIndex >= 0 && currentMatchedRuleIndex < ActiveRules.Count)
+            // 状态栏显示“最后一条命中规则”（按列表顺序最后匹配、即最终生效覆盖者），而非第一条。
+            var displayMatchedIndex = currentAppliedRuleIndices.Count > 0
+                ? currentAppliedRuleIndices[^1]
+                : -1;
+            if (displayMatchedIndex >= 0 && displayMatchedIndex < ActiveRules.Count)
             {
                 hasMatch = true;
                 matchText = Localization.WindowMatchSummary(
-                    currentMatchedRuleIndex,
-                    ActiveRules[currentMatchedRuleIndex].Name);
+                    displayMatchedIndex,
+                    ActiveRules[displayMatchedIndex].Name);
             }
             else
             {
@@ -5529,23 +5863,28 @@ namespace HeelsDesignLinker
         private Dictionary<int, string> GetPenumbraSubActionConflictHints(PenumbraActionGroup group)
         {
             var flatActions = FlattenPenumbraGroup(group);
-            return RulePenumbraActionAnalysis.Analyze(
+            return RulePenumbraActionAnalysis.AnalyzeWithPartners(
                 flatActions,
                 (mod, option) => _penumbraInterop.GetOptionGroupType(mod, option))
-                .ToDictionary(
-                    kv => kv.Key,
-                    kv => kv.Value switch
-                    {
-                        PenumbraActionConflictKind.ModEnableDisable =>
-                            Localization.RulePenumbraModEnableDisableConflictHint,
-                        PenumbraActionConflictKind.DisableModBlocksOption =>
-                            Localization.RulePenumbraDisableBlocksOptionHint,
-                        PenumbraActionConflictKind.OptionSetting =>
-                            Localization.RulePenumbraOptionConflictHint,
-                        PenumbraActionConflictKind.MultiToggleSubOption =>
-                            Localization.RulePenumbraMultiToggleConflictHint,
-                        _ => "",
-                    });
+                .ToDictionary(kv => kv.Key, kv => BuildPenumbraConflictHint(kv.Value));
+        }
+
+        private static string BuildPenumbraConflictHint(PenumbraActionConflictInfo info)
+        {
+            var baseHint = info.Kind switch
+            {
+                PenumbraActionConflictKind.ModEnableDisable => Localization.RulePenumbraModEnableDisableConflictHint,
+                PenumbraActionConflictKind.DisableModBlocksOption => Localization.RulePenumbraDisableBlocksOptionHint,
+                PenumbraActionConflictKind.OptionSetting => Localization.RulePenumbraOptionConflictHint,
+                PenumbraActionConflictKind.MultiToggleSubOption => Localization.RulePenumbraMultiToggleConflictHint,
+                _ => "",
+            };
+
+            if (info.Partners.Count == 0)
+                return baseHint;
+
+            var conflictWith = Localization.RulePenumbraConflictWithActions(info.Partners.Select(p => p + 1));
+            return string.IsNullOrEmpty(baseHint) ? conflictWith : $"{baseHint} {conflictWith}";
         }
 
         private void DrawPenumbraActionGroup(
@@ -5556,9 +5895,13 @@ namespace HeelsDesignLinker
             Action onDeleteGroup,
             string idPrefix,
             int? groupReorderRuleIndex = null,
-            int? groupReorderIndex = null)
+            int? groupReorderIndex = null,
+            HeelsRuleAction? syncCollapseAction = null)
         {
             MigratePenumbraGroupLegacySubActions(group);
+            if (syncCollapseAction != null)
+                SyncPenumbraActionCollapse(syncCollapseAction, group);
+
             var modLabel = GetPenumbraGroupModLabel(group);
 
             ImGui.AlignTextToFramePadding();
@@ -5572,6 +5915,8 @@ namespace HeelsDesignLinker
             if (ImGui.ArrowButton($"##PenGroupCollapse{idPrefix}", expanded ? ImGuiDir.Down : ImGuiDir.Right))
             {
                 group.IsCollapsed = !group.IsCollapsed;
+                if (syncCollapseAction != null)
+                    syncCollapseAction.IsActionCollapsed = group.IsCollapsed;
                 SaveConfig();
             }
 
@@ -5648,6 +5993,7 @@ namespace HeelsDesignLinker
         private void DrawRulePenumbraActionGroup(int ruleIndex, int actionIndex, HeelsRuleAction groupAction)
         {
             var group = EnsurePenumbraGroupOnAction(groupAction);
+            SyncPenumbraActionCollapse(groupAction, group);
             var subHostRuleIndex = ToPenumbraSubHostRuleIndex(ruleIndex, actionIndex);
             DrawPenumbraActionGroup(
                 group,
@@ -5661,7 +6007,8 @@ namespace HeelsDesignLinker
                 },
                 idPrefix: $"R{ruleIndex}G{actionIndex}",
                 groupReorderRuleIndex: ruleIndex,
-                groupReorderIndex: actionIndex);
+                groupReorderIndex: actionIndex,
+                syncCollapseAction: groupAction);
         }
 
         private static bool IsBaselineTypeGroupExpanded(RuleSet ruleSet, ActionType type) =>
@@ -6077,13 +6424,29 @@ namespace HeelsDesignLinker
             ImGui.Spacing();
             ImGui.TextWrapped(Localization.ActionTypeHint);
             ImGui.TextWrapped(Localization.PenumbraPriorityWarning);
+            ImGui.TextWrapped(Localization.GlamourerSlotConflictNote);
             ImGui.TextWrapped(Localization.OptionalAddonsHint);
             ImGui.TextDisabled(Localization.MoodlesRemoteApplyHint);
             ImGui.Unindent();
         }
         
+        /// <summary>节流刷新 Glamourer 装备槽位冲突分析（设计槽位查询走 IPC，避免每帧调用）。</summary>
+        private void RefreshGlamourerConflictsIfNeeded()
+        {
+            if (DateTime.UtcNow - glamourerConflictsComputedUtc < GlamourerConflictRefreshInterval)
+                return;
+
+            glamourerConflictsComputedUtc = DateTime.UtcNow;
+            glamourerConflicts = RuleGlamourerConflictAnalysis.Analyze(
+                ActiveRules,
+                designName => _glamourerInterop.GetDesignAppliedEquipmentSlotsByName(designName));
+        }
+
         private void DrawRulesTab()
         {
+            RefreshGlamourerConflictsIfNeeded();
+            RefreshMatchedModConflictsIfNeeded();
+
             // RuleSet 选择器
             DrawRuleSetSelector();
 
@@ -6103,24 +6466,57 @@ namespace HeelsDesignLinker
             DrawGlamourerFeetWarningBanner();
 
             var activeRules = ActiveRules;
-            for (int i = 0; i < activeRules.Count; i++)
+            var groups = ComputeRuleGroups();
+            var ruleDeleted = false;
+            for (var gi = 0; gi < groups.Count; gi++)
             {
-                ImGui.PushID(i);
-                DrawRuleRow(i, out var ruleDeleted);
-                ImGui.PopID();
-                
-                if (ruleDeleted)
-                    break; // 删除了规则，立即退出循环避免索引错误
-                
-                // 如果是最后一个规则且需要滚动到它
-                if (i == activeRules.Count - 1 && scrollToLastRule)
+                var (gStart, gEnd) = groups[gi];
+                if (gStart < 0 || gStart >= activeRules.Count)
+                    continue;
+
+                // 分组之间用双分割线分隔
+                if (gi > 0)
                 {
-                    ImGui.SetScrollHereY(1.0f);
-                    scrollToLastRule = false;
+                    ImGui.Spacing();
+                    ImGui.Separator();
+                    ImGui.Separator();
+                    ImGui.Spacing();
                 }
+
+                var headerRule = activeRules[gStart];
+                ImGui.PushID($"Group{gi}");
+                DrawRuleGroupHeader(gStart, gEnd, gi);
+                ImGui.PopID();
+
+                if (headerRule.GroupCollapsed)
+                    continue;
+
+                for (var i = gStart; i <= gEnd && i < activeRules.Count; i++)
+                {
+                    ImGui.PushID(i);
+                    DrawRuleRow(i, out var thisDeleted);
+                    ImGui.PopID();
+
+                    if (thisDeleted)
+                    {
+                        ruleDeleted = true;
+                        break; // 删除了规则，立即退出循环避免索引错误
+                    }
+
+                    // 如果是最后一个规则且需要滚动到它
+                    if (i == activeRules.Count - 1 && scrollToLastRule)
+                    {
+                        ImGui.SetScrollHereY(1.0f);
+                        scrollToLastRule = false;
+                    }
+                }
+
+                if (ruleDeleted)
+                    break;
             }
 
             ProcessRuleDragReorder();
+            ProcessGroupDragReorder();
             ImGui.EndChild();
 
             if (ImGui.Button(Localization.Save)) SaveConfig();
@@ -6358,8 +6754,8 @@ namespace HeelsDesignLinker
                 
             var currentRule = activeRules[ruleIndex];
             
-            // 在每条规则之间绘制分界线（第一条规则除外）
-            if (ruleIndex > 0)
+            // 在每条规则之间绘制分界线（第一条规则、以及分组首条除外，后者已有分组头分隔）
+            if (ruleIndex > 0 && !IsRuleGroupStart(ruleIndex))
             {
                 var lineStart = ImGui.GetCursorScreenPos();
                 var lineEnd = new Vector2(lineStart.X + ImGui.GetContentRegionAvail().X, lineStart.Y);
@@ -6371,7 +6767,8 @@ namespace HeelsDesignLinker
                 ImGui.Dummy(new Vector2(0, 2)); // 为分隔线占位
             }
 
-            if (ruleIndex == currentMatchedRuleIndex)
+            var ruleIsApplied = IsRuleApplied(ruleIndex);
+            if (ruleIsApplied)
             {
                 ImGui.PushStyleColor(ImGuiCol.FrameBg, new Vector4(0.0f, 0.4f, 0.0f, 0.3f));
                 ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, new Vector4(0.0f, 0.5f, 0.0f, 0.4f));
@@ -6403,7 +6800,7 @@ namespace HeelsDesignLinker
                 if (ruleDeleted)
                 {
                     deleted = true;
-                    if (ruleIndex == currentMatchedRuleIndex)
+                    if (ruleIsApplied)
                     {
                         ImGui.PopStyleColor(3);
                     }
@@ -6433,8 +6830,129 @@ namespace HeelsDesignLinker
                     2f);
             }
 
-            if (ruleIndex == currentMatchedRuleIndex)
+            if (ruleIsApplied)
                 ImGui.PopStyleColor(3);
+
+            if (ruleIndex < activeRules.Count - 1)
+                DrawRuleConnector(ruleIndex, currentRule);
+        }
+
+        /// <summary>分组头：显示折叠箭头、分组序号、可编辑名称、规则条数与整组拖拽手柄。</summary>
+        private void DrawRuleGroupHeader(int groupStartIndex, int groupEndIndex, int groupZeroBasedIndex)
+        {
+            var rules = ActiveRules;
+            if (groupStartIndex < 0 || groupStartIndex >= rules.Count)
+                return;
+
+            var rule = rules[groupStartIndex];
+            var ordinal = groupZeroBasedIndex + 1;
+            var ruleCount = Math.Max(1, groupEndIndex - groupStartIndex + 1);
+
+            var headerTop = ImGui.GetCursorScreenPos();
+            ImGui.Spacing();
+            ImGui.PushID($"RuleGroupHeader{groupStartIndex}");
+
+            // 折叠/展开整个分组
+            if (ImGui.ArrowButton("##GroupCollapse", rule.GroupCollapsed ? ImGuiDir.Right : ImGuiDir.Down))
+            {
+                rule.GroupCollapsed = !rule.GroupCollapsed;
+                SaveConfig();
+            }
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(rule.GroupCollapsed ? Localization.ExpandGroupTooltip : Localization.CollapseGroupTooltip);
+
+            ImGui.SameLine();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(new Vector4(0.55f, 0.8f, 1.0f, 1.0f), Localization.RuleGroupHeader(ordinal));
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(Localization.RuleGroupHeaderTooltip);
+
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(220);
+            var name = rule.GroupName ?? "";
+            if (ImGui.InputTextWithHint($"##GroupName{groupStartIndex}", Localization.RuleGroupNameHint, ref name, 64))
+            {
+                rule.GroupName = name;
+                SaveConfig();
+            }
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(Localization.RuleGroupNameTooltip);
+
+            // 规则条数
+            ImGui.SameLine();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1.0f), Localization.RuleGroupRuleCount(ruleCount));
+
+            // 整组拖拽手柄
+            ImGui.SameLine();
+            if (ImGui.Button($"{Localization.RuleDragHandle}##GroupDrag"))
+            {
+            }
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(Localization.GroupDragHandleTooltip);
+            if (ImGui.IsItemActive() && ImGui.IsMouseDragging(ImGuiMouseButton.Left))
+                _groupDragSourceIndex ??= groupZeroBasedIndex;
+
+            ImGui.Separator();
+
+            // 整组拖拽目标命中检测（覆盖整个分组头区域，含上下判断）
+            var rectMin = new Vector2(headerTop.X, headerTop.Y);
+            var rectMax = new Vector2(headerTop.X + ImGui.GetContentRegionAvail().X, ImGui.GetCursorScreenPos().Y);
+            UpdateGroupDragTarget(groupZeroBasedIndex, rectMin, rectMax);
+
+            ImGui.PopID();
+        }
+
+        /// <summary>绘制规则之间的分组边界控制（同一分组 / 结束本组并开启新分组）。</summary>
+        private void DrawRuleConnector(int ruleIndex, HeelsRule rule)
+        {
+            var startsNewGroup = rule.OperatorToNext == LogicOperator.And;
+            ImGui.PushID($"RuleConnector{ruleIndex}");
+
+            ImGui.Spacing();
+
+            var color = startsNewGroup
+                ? new Vector4(0.4f, 0.7f, 1.0f, 1.0f)
+                : new Vector4(0.7f, 0.7f, 0.7f, 1.0f);
+
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1.0f), Localization.RuleConnectorPrefix);
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(startsNewGroup ? Localization.RuleConnectorAndTooltip : Localization.RuleConnectorOrTooltip);
+
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(260);
+            ImGui.PushStyleColor(ImGuiCol.Text, color);
+            var comboOpen = ImGui.BeginCombo("##RuleOperatorToNext", startsNewGroup ? Localization.RuleConnectorAnd : Localization.RuleConnectorOr);
+            ImGui.PopStyleColor();
+            if (comboOpen)
+            {
+                if (ImGui.Selectable(Localization.RuleConnectorOr, !startsNewGroup))
+                {
+                    rule.OperatorToNext = LogicOperator.Or;
+                    FixMisplacedElseBranches(ActiveRules);
+                    SaveConfig();
+                }
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip(Localization.RuleConnectorOrTooltip);
+
+                if (ImGui.Selectable(Localization.RuleConnectorAnd, startsNewGroup))
+                {
+                    rule.OperatorToNext = LogicOperator.And;
+                    FixMisplacedElseBranches(ActiveRules);
+                    SaveConfig();
+                }
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip(Localization.RuleConnectorAndTooltip);
+
+                ImGui.EndCombo();
+            }
+
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(startsNewGroup ? Localization.RuleConnectorAndTooltip : Localization.RuleConnectorOrTooltip);
+
+            ImGui.Spacing();
+            ImGui.PopID();
         }
 
         private void DrawRuleSwitchColumn(int ruleIndex, HeelsRule currentRule, out bool deleted)
@@ -6534,6 +7052,8 @@ namespace HeelsDesignLinker
             }
 
             _ruleDragTargetIndex = ruleIndex;
+            // 上下判断：鼠标在目标行中线以下则放到目标之后，否则放到目标之前。
+            _ruleDropAfter = mousePos.Y > (rowMin.Y + rowMax.Y) * 0.5f;
         }
 
         private void ProcessRuleDragReorder()
@@ -6550,11 +7070,133 @@ namespace HeelsDesignLinker
             if (_ruleDragTargetIndex.HasValue
                 && _ruleDragSourceIndex.Value != _ruleDragTargetIndex.Value)
             {
-                ReorderRule(_ruleDragSourceIndex.Value, _ruleDragTargetIndex.Value);
+                var insertIndex = ResolveDropInsertIndex(
+                    _ruleDragSourceIndex.Value, _ruleDragTargetIndex.Value, _ruleDropAfter);
+                ReorderRule(_ruleDragSourceIndex.Value, insertIndex);
             }
 
             _ruleDragSourceIndex = null;
             _ruleDragTargetIndex = null;
+        }
+
+        /// <summary>
+        /// 根据拖拽源、目标与“放到目标之后/之前”计算移除源元素后应插入的最终下标。
+        /// 适用于所有单列表拖拽（规则、行动、子行动等），from/to 必须是同一列表的下标。
+        /// </summary>
+        private static int ResolveDropInsertIndex(int fromIndex, int toIndex, bool dropAfter)
+        {
+            var insertPos = dropAfter ? toIndex + 1 : toIndex;
+            if (fromIndex < insertPos)
+                insertPos--;
+            return insertPos < 0 ? 0 : insertPos;
+        }
+
+        /// <summary>按分组边界（OperatorToNext==And 或末尾）把当前规则列表切分为 [起,止] 区间。</summary>
+        private List<(int Start, int End)> ComputeRuleGroups()
+        {
+            var rules = ActiveRules;
+            var groups = new List<(int Start, int End)>();
+            if (rules.Count == 0)
+                return groups;
+
+            var start = 0;
+            for (var i = 0; i < rules.Count; i++)
+            {
+                if (rules[i].OperatorToNext == LogicOperator.And || i == rules.Count - 1)
+                {
+                    groups.Add((start, i));
+                    start = i + 1;
+                }
+            }
+
+            return groups;
+        }
+
+        private void UpdateGroupDragTarget(int groupIndex, Vector2 rectMin, Vector2 rectMax)
+        {
+            if (!_groupDragSourceIndex.HasValue || !ImGui.IsMouseDown(ImGuiMouseButton.Left))
+                return;
+
+            var mousePos = ImGui.GetIO().MousePos;
+            if (mousePos.X < rectMin.X || mousePos.X > rectMax.X
+                || mousePos.Y < rectMin.Y || mousePos.Y > rectMax.Y)
+            {
+                return;
+            }
+
+            _groupDragTargetIndex = groupIndex;
+            _groupDropAfter = mousePos.Y > (rectMin.Y + rectMax.Y) * 0.5f;
+        }
+
+        private void ProcessGroupDragReorder()
+        {
+            if (!_groupDragSourceIndex.HasValue)
+                return;
+
+            if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
+            {
+                ImGui.SetTooltip(Localization.GroupDragPreview(_groupDragSourceIndex.Value + 1));
+                return;
+            }
+
+            if (_groupDragTargetIndex.HasValue
+                && _groupDragSourceIndex.Value != _groupDragTargetIndex.Value)
+            {
+                ReorderRuleGroup(_groupDragSourceIndex.Value, _groupDragTargetIndex.Value, _groupDropAfter);
+            }
+
+            _groupDragSourceIndex = null;
+            _groupDragTargetIndex = null;
+        }
+
+        /// <summary>整组拖拽排序：把第 fromGroup 个分组整体移动到目标分组之前/之后，并重建分组边界。</summary>
+        private void ReorderRuleGroup(int fromGroup, int toGroup, bool dropAfter)
+        {
+            var rules = ActiveRules;
+            var groups = ComputeRuleGroups();
+            if (fromGroup < 0 || fromGroup >= groups.Count
+                || toGroup < 0 || toGroup >= groups.Count
+                || fromGroup == toGroup)
+            {
+                return;
+            }
+
+            // 拆分为分组块
+            var blocks = new List<List<HeelsRule>>();
+            foreach (var (s, e) in groups)
+            {
+                var block = new List<HeelsRule>();
+                for (var i = s; i <= e && i < rules.Count; i++)
+                    block.Add(rules[i]);
+                blocks.Add(block);
+            }
+
+            var moving = blocks[fromGroup];
+            blocks.RemoveAt(fromGroup);
+
+            var insertPos = ResolveDropInsertIndex(fromGroup, toGroup, dropAfter);
+            if (insertPos > blocks.Count)
+                insertPos = blocks.Count;
+            blocks.Insert(insertPos, moving);
+
+            // 重建规则列表，并按“块尾=And 开新组、块内=Or 同组、最后一块块尾=Or”重设边界。
+            rules.Clear();
+            for (var b = 0; b < blocks.Count; b++)
+            {
+                var block = blocks[b];
+                for (var k = 0; k < block.Count; k++)
+                {
+                    var r = block[k];
+                    var isBlockLast = k == block.Count - 1;
+                    r.OperatorToNext = isBlockLast && b < blocks.Count - 1
+                        ? LogicOperator.And
+                        : LogicOperator.Or;
+                    rules.Add(r);
+                }
+            }
+
+            FixMisplacedElseBranches(rules);
+            SaveConfig();
         }
 
         private bool IsHonorificRuleToggleAvailable() =>
@@ -6568,12 +7210,13 @@ namespace HeelsDesignLinker
             var formatString = $"%.{Configuration.DecimalPrecision}f";
             var tolerance = MathF.Pow(10f, -Math.Clamp(Configuration.DecimalPrecision, 0, 5));
             var isUnreachable = RuleHeightAnalysis.IsUnreachable(ActiveRules, ruleIndex, tolerance);
+            // “否则”应是其分组的最后一条。仅当同一分组内它后面还有已启用规则时才不可达（黄色警告）；
+            // 跨分组（AND 边界之后）的规则属于独立分组、仍可达，不应警告。
             var isInvalidElse = ruleIndex > 0
                 && currentRule.BranchKind == RuleBranchKind.Else
-                && ruleIndex < ActiveRules.Count - 1
-                && ActiveRules.Skip(ruleIndex + 1).Any(r => r.IsActive);
+                && HasActiveRuleLaterInSameGroup(ruleIndex);
             var hasUnreachableWarning = isUnreachable || isInvalidElse;
-            var isMatched = currentMatchedRuleIndex == ruleIndex;
+            var isMatched = IsRuleApplied(ruleIndex);
             var hasFeetWarning = DoesRuleHaveFeetWarning(currentRule);
             
             // 折叠模式：只显示规则编号和名称
@@ -6605,10 +7248,10 @@ namespace HeelsDesignLinker
                     ImGui.Text($"- {currentRule.Name}");
                 }
                 
-                // 新行：显示分支类型和条件组信息
-                var branchLabel = ruleIndex == 0 ? Localization.RuleOrderIf : Localization.RuleBranchLabel(currentRule.BranchKind);
+                // 新行：显示分支类型和条件组信息（分组首条始终显示为“如果”）
+                var branchLabel = IsRuleGroupStart(ruleIndex) ? Localization.RuleOrderIf : Localization.RuleBranchLabel(currentRule.BranchKind);
                 
-                if (currentRule.BranchKind == RuleBranchKind.Else && ruleIndex > 0)
+                if (currentRule.BranchKind == RuleBranchKind.Else && !IsRuleGroupStart(ruleIndex))
                 {
                     // 否则分支，显示 "否则"
                     ImGui.Text($"{branchLabel}");
@@ -6679,8 +7322,16 @@ namespace HeelsDesignLinker
 
         private void DrawRuleBranchSelector(int ruleIndex, HeelsRule rule, bool hasUnreachableWarning, bool isInvalidElse)
         {
-            if (ruleIndex == 0)
+            // 分组首条（列表首条或上一条为“新分组”）始终是“如果”，不提供分支下拉。
+            if (IsRuleGroupStart(ruleIndex))
             {
+                // 规整：分组首条不能是“否则”（否则会无条件命中）。
+                if (rule.BranchKind == RuleBranchKind.Else)
+                {
+                    rule.BranchKind = RuleBranchKind.ElseIf;
+                    SaveConfig();
+                }
+
                 if (hasUnreachableWarning)
                     ImGui.PushStyleColor(ImGuiCol.Text, RuleUnreachableWarningColor);
 
@@ -7284,6 +7935,8 @@ namespace HeelsDesignLinker
             }
 
             _actionDragTargetIndex = actionIndex;
+            // 上下判断：鼠标在目标行中线以下则放到目标之后，否则放到目标之前。
+            _actionDropAfter = mousePos.Y > (rowMin.Y + rowMax.Y) * 0.5f;
         }
 
         private void ProcessActionDragReorder(int ruleIndex)
@@ -7300,7 +7953,9 @@ namespace HeelsDesignLinker
             if (_actionDragTargetIndex.HasValue
                 && _actionDragSourceIndex.Value != _actionDragTargetIndex.Value)
             {
-                ReorderRuleAction(ruleIndex, _actionDragSourceIndex.Value, _actionDragTargetIndex.Value);
+                var insertIndex = ResolveDropInsertIndex(
+                    _actionDragSourceIndex.Value, _actionDragTargetIndex.Value, _actionDropAfter);
+                ReorderRuleAction(ruleIndex, _actionDragSourceIndex.Value, insertIndex);
             }
 
             _actionDragSourceRuleIndex = null;
@@ -7815,22 +8470,13 @@ namespace HeelsDesignLinker
 
         private Dictionary<int, string> GetPenumbraActionConflictHints(HeelsRule rule)
         {
-            var conflicts = RulePenumbraActionAnalysis.Analyze(
+            var conflicts = RulePenumbraActionAnalysis.AnalyzeWithPartners(
                 rule.Actions ?? [],
                 (mod, option) => _penumbraInterop.GetOptionGroupType(mod, option));
 
             var hints = new Dictionary<int, string>();
-            foreach (var (index, kind) in conflicts)
-            {
-                hints[index] = kind switch
-                {
-                    PenumbraActionConflictKind.ModEnableDisable => Localization.RulePenumbraModEnableDisableConflictHint,
-                    PenumbraActionConflictKind.DisableModBlocksOption => Localization.RulePenumbraDisableBlocksOptionHint,
-                    PenumbraActionConflictKind.OptionSetting => Localization.RulePenumbraOptionConflictHint,
-                    PenumbraActionConflictKind.MultiToggleSubOption => Localization.RulePenumbraMultiToggleConflictHint,
-                    _ => "",
-                };
-            }
+            foreach (var (index, info) in conflicts)
+                hints[index] = BuildPenumbraConflictHint(info);
 
             return hints;
         }
@@ -7925,8 +8571,16 @@ namespace HeelsDesignLinker
             deleted = false;
             var flatAction = FlattenPenumbraSubAction(group, sub);
             var modDirectory = group.PenumbraModName ?? "";
-            var hasPenumbraConflict = penumbraConflictHints.TryGetValue(subIndex, out var penumbraConflictHint);
-            var hasGlamourerTakeover = IsPenumbraModUnderGlamourerTakeover(modDirectory);
+
+            // 仅当临时层覆盖确实来自外部 Glamourer（非自己写入、也非本插件设计触发）时才视为“接管”警告。
+            var hasGlamourerTakeover = IsPenumbraModUnderGlamourerTakeover(modDirectory)
+                && !IsPenumbraModSelfManaged(modDirectory);
+
+            var withinGroupConflict = penumbraConflictHints.TryGetValue(subIndex, out var penumbraConflictHint);
+            var crossRuleConflict = DoMatchedRulesConflictOnMod(group.PenumbraCollection, modDirectory);
+            if (!withinGroupConflict && crossRuleConflict)
+                penumbraConflictHint = Localization.RulePenumbraMatchedRuleConflictHint;
+            var hasPenumbraConflict = withinGroupConflict || crossRuleConflict;
 
             var rowStartPos = ImGui.GetCursorScreenPos();
             var contentWidth = ImGui.GetContentRegionAvail().X;
@@ -8041,13 +8695,13 @@ namespace HeelsDesignLinker
 
             if (hasGlamourerTakeover)
             {
-                ImGui.TextColored(PenumbraGlamourerTakeoverWarningColor, $"⚠ {Localization.PenumbraModGlamourerTakeoverWarning}");
+                ImGui.TextColored(PenumbraGlamourerTakeoverWarningColor, $"! {Localization.PenumbraModGlamourerTakeoverWarning}");
                 ImGui.Spacing();
             }
 
             if (hasPenumbraConflict)
             {
-                ImGui.TextColored(RulePenumbraConflictWarningColor, $"⚠ {penumbraConflictHint}");
+                ImGui.TextColored(RulePenumbraConflictWarningColor, $"! {penumbraConflictHint}");
                 ImGui.Spacing();
             }
 
@@ -8131,6 +8785,23 @@ namespace HeelsDesignLinker
             var hasFeet = action.Type == ActionType.Glamourer && DoesGlamourerDesignHaveFeet(action.GlamourerDesign);
             var hasPenumbraConflict = penumbraConflictHints.TryGetValue(actionIndex, out var penumbraConflictHint);
             var hasGlamourerTakeover = false;
+
+            GlamourerConflictKind? glamourerConflict = action.Type == ActionType.Glamourer
+                && glamourerConflicts.TryGetValue((ruleIndex, actionIndex), out var glamConflictKind)
+                ? glamConflictKind
+                : null;
+            var glamourerConflictColor = glamourerConflict switch
+            {
+                GlamourerConflictKind.Unresolved => GlamourerSlotConflictUnresolvedColor,
+                GlamourerConflictKind.Resolved => GlamourerSlotConflictResolvedColor,
+                _ => (Vector4?)null,
+            };
+            var glamourerConflictHint = glamourerConflict switch
+            {
+                GlamourerConflictKind.Unresolved => Localization.GlamourerSlotConflictUnresolvedHint,
+                GlamourerConflictKind.Resolved => Localization.GlamourerSlotConflictResolvedHint,
+                _ => "",
+            };
             
             // 记录起始位置（用于绘制背景）
             var actionStartPos = ImGui.GetCursorScreenPos();
@@ -8192,13 +8863,17 @@ namespace HeelsDesignLinker
 
             ImGui.SameLine();
             
-            // 脚部装备红色 > Glamourer 接管黄色 > Penumbra 规则内冲突橙色 > 默认
+            // 脚部装备红色 > Glamourer 槽位未解决冲突红色 > Glamourer 接管黄色 > Penumbra 规则内冲突橙色 > Glamourer 槽位已解决冲突浅蓝 > 默认
             if (hasFeet)
                 ImGui.TextColored(new Vector4(1.0f, 0.3f, 0.3f, 1.0f), Localization.RuleActionLabel(actionIndex + 1));
+            else if (glamourerConflict == GlamourerConflictKind.Unresolved)
+                ImGui.TextColored(GlamourerSlotConflictUnresolvedColor, Localization.RuleActionLabel(actionIndex + 1));
             else if (hasGlamourerTakeover)
                 ImGui.TextColored(PenumbraGlamourerTakeoverWarningColor, Localization.RuleActionLabel(actionIndex + 1));
             else if (hasPenumbraConflict)
                 ImGui.TextColored(RulePenumbraConflictWarningColor, Localization.RuleActionLabel(actionIndex + 1));
+            else if (glamourerConflict == GlamourerConflictKind.Resolved)
+                ImGui.TextColored(GlamourerSlotConflictResolvedColor, Localization.RuleActionLabel(actionIndex + 1));
             else
                 ImGui.TextDisabled(Localization.RuleActionLabel(actionIndex + 1));
 
@@ -8206,6 +8881,8 @@ namespace HeelsDesignLinker
                 ImGui.SetTooltip(Localization.PenumbraModGlamourerTakeoverWarning);
             else if (hasPenumbraConflict && ImGui.IsItemHovered())
                 ImGui.SetTooltip(penumbraConflictHint);
+            else if (glamourerConflict != null && ImGui.IsItemHovered())
+                ImGui.SetTooltip(glamourerConflictHint);
             
             // 折叠时显示简要信息
             if (action.IsActionCollapsed)
@@ -8225,10 +8902,14 @@ namespace HeelsDesignLinker
                 
                 if (hasFeet)
                     typeColor = new Vector4(1.0f, 0.3f, 0.3f, 1.0f);
+                else if (glamourerConflict == GlamourerConflictKind.Unresolved)
+                    typeColor = GlamourerSlotConflictUnresolvedColor;
                 else if (hasGlamourerTakeover)
                     typeColor = PenumbraGlamourerTakeoverWarningColor;
                 else if (hasPenumbraConflict)
                     typeColor = RulePenumbraConflictWarningColor;
+                else if (glamourerConflict == GlamourerConflictKind.Resolved)
+                    typeColor = GlamourerSlotConflictResolvedColor;
                 
                 // 显示类型图标（带颜色）
                 ImGui.TextColored(typeColor, typeIcon);
@@ -8247,10 +8928,14 @@ namespace HeelsDesignLinker
                 
                 if (hasFeet)
                     ImGui.TextColored(new Vector4(1.0f, 0.3f, 0.3f, 1.0f), summary);
+                else if (glamourerConflict == GlamourerConflictKind.Unresolved)
+                    ImGui.TextColored(GlamourerSlotConflictUnresolvedColor, summary);
                 else if (hasGlamourerTakeover)
                     ImGui.TextColored(PenumbraGlamourerTakeoverWarningColor, summary);
                 else if (hasPenumbraConflict)
                     ImGui.TextColored(RulePenumbraConflictWarningColor, summary);
+                else if (glamourerConflict == GlamourerConflictKind.Resolved)
+                    ImGui.TextColored(GlamourerSlotConflictResolvedColor, summary);
                 else
                     ImGui.TextColored(new Vector4(0.9f, 0.9f, 0.9f, 1.0f), summary);
 
@@ -8258,6 +8943,8 @@ namespace HeelsDesignLinker
                     ImGui.SetTooltip(Localization.PenumbraModGlamourerTakeoverWarning);
                 else if (hasPenumbraConflict && ImGui.IsItemHovered())
                     ImGui.SetTooltip(penumbraConflictHint);
+                else if (glamourerConflict != null && ImGui.IsItemHovered())
+                    ImGui.SetTooltip(glamourerConflictHint);
             }
 
             if (canDelete)
@@ -8289,7 +8976,8 @@ namespace HeelsDesignLinker
                     contentWidth,
                     hasFeet,
                     hasGlamourerTakeover,
-                    hasPenumbraConflict);
+                    hasPenumbraConflict,
+                    glamourerConflict);
                 return;
             }
 
@@ -8297,13 +8985,13 @@ namespace HeelsDesignLinker
 
             if (hasGlamourerTakeover)
             {
-                ImGui.TextColored(PenumbraGlamourerTakeoverWarningColor, $"⚠ {Localization.PenumbraModGlamourerTakeoverWarning}");
+                ImGui.TextColored(PenumbraGlamourerTakeoverWarningColor, $"! {Localization.PenumbraModGlamourerTakeoverWarning}");
                 ImGui.Spacing();
             }
 
             if (hasPenumbraConflict)
             {
-                ImGui.TextColored(RulePenumbraConflictWarningColor, $"⚠ {penumbraConflictHint}");
+                ImGui.TextColored(RulePenumbraConflictWarningColor, $"! {penumbraConflictHint}");
                 ImGui.Spacing();
             }
             
@@ -8325,6 +9013,31 @@ namespace HeelsDesignLinker
                     
                     if (hasFeet)
                         ImGui.PopStyleColor();
+
+                    // 优先级（数值越大越优先：越后应用、冲突装备槽位胜出）
+                    ImGui.SetNextItemWidth(120);
+                    var glamPriority = action.GlamourerPriority;
+                    if (ImGui.InputInt($"{Localization.GlamourerPriorityLabel}##GlamPrio{ruleIndex}_{actionIndex}", ref glamPriority))
+                    {
+                        action.GlamourerPriority = glamPriority;
+                        SaveConfig();
+                    }
+                    if (ImGui.IsItemHovered())
+                        ImGui.SetTooltip(Localization.GlamourerPriorityTooltip);
+
+                    // 装备槽位冲突提示
+                    if (glamourerConflict == GlamourerConflictKind.Unresolved)
+                    {
+                        ImGui.PushStyleColor(ImGuiCol.Text, GlamourerSlotConflictUnresolvedColor);
+                        ImGui.TextWrapped($"! {Localization.GlamourerSlotConflictUnresolvedHint}");
+                        ImGui.PopStyleColor();
+                    }
+                    else if (glamourerConflict == GlamourerConflictKind.Resolved)
+                    {
+                        ImGui.PushStyleColor(ImGuiCol.Text, GlamourerSlotConflictResolvedColor);
+                        ImGui.TextWrapped($"ℹ {Localization.GlamourerSlotConflictResolvedHint}");
+                        ImGui.PopStyleColor();
+                    }
                     
                     // 如果包含脚部装备，显示警告
                     if (hasFeet)
@@ -8360,7 +9073,8 @@ namespace HeelsDesignLinker
                 contentWidth,
                 hasFeet,
                 hasGlamourerTakeover,
-                hasPenumbraConflict);
+                hasPenumbraConflict,
+                glamourerConflict);
         }
 
         private static void DrawRuleActionWarningBackground(
@@ -8368,18 +9082,23 @@ namespace HeelsDesignLinker
             float contentWidth,
             bool hasFeetWarning,
             bool hasGlamourerTakeover,
-            bool hasPenumbraConflict)
+            bool hasPenumbraConflict,
+            GlamourerConflictKind? glamourerConflict = null)
         {
-            if (!hasFeetWarning && !hasGlamourerTakeover && !hasPenumbraConflict)
+            if (!hasFeetWarning && !hasGlamourerTakeover && !hasPenumbraConflict && glamourerConflict == null)
                 return;
 
             var actionEndPos = ImGui.GetCursorScreenPos();
             var drawList = ImGui.GetWindowDrawList();
             var fillColor = hasFeetWarning
                 ? new Vector4(0.4f, 0.0f, 0.0f, 0.3f)
-                : hasGlamourerTakeover
-                    ? new Vector4(0.35f, 0.3f, 0.0f, 0.28f)
-                    : new Vector4(0.45f, 0.2f, 0.0f, 0.28f);
+                : glamourerConflict == GlamourerConflictKind.Unresolved
+                    ? new Vector4(0.4f, 0.0f, 0.0f, 0.3f)
+                    : hasGlamourerTakeover
+                        ? new Vector4(0.35f, 0.3f, 0.0f, 0.28f)
+                        : hasPenumbraConflict
+                            ? new Vector4(0.45f, 0.2f, 0.0f, 0.28f)
+                            : new Vector4(0.1f, 0.25f, 0.4f, 0.28f); // Glamourer 已解决冲突：浅蓝
             drawList.ChannelsSplit(2);
             drawList.ChannelsSetCurrent(0);
             drawList.AddRectFilled(
@@ -8403,6 +9122,18 @@ namespace HeelsDesignLinker
                     actionStartPos,
                     new Vector2(actionStartPos.X + contentWidth, actionEndPos.Y),
                     ImGui.GetColorU32(RulePenumbraConflictWarningColor),
+                    3.0f,
+                    ImDrawFlags.None,
+                    1.5f);
+            }
+            else if (!hasFeetWarning && glamourerConflict != null)
+            {
+                drawList.AddRect(
+                    actionStartPos,
+                    new Vector2(actionStartPos.X + contentWidth, actionEndPos.Y),
+                    ImGui.GetColorU32(glamourerConflict == GlamourerConflictKind.Unresolved
+                        ? GlamourerSlotConflictUnresolvedColor
+                        : GlamourerSlotConflictResolvedColor),
                     3.0f,
                     ImDrawFlags.None,
                     1.5f);
@@ -8758,11 +9489,13 @@ namespace HeelsDesignLinker
 
         private void DrawPenumbraGlamourerTakeoverControls(HeelsRuleAction action, string idSuffix)
         {
-            if (!IsPenumbraActionUnderGlamourerTakeover(action))
+            // 仅外部 Glamourer 接管才需要授权覆盖；自己写入或本插件设计触发的接管不再提示。
+            if (!IsPenumbraActionUnderGlamourerTakeover(action)
+                || IsPenumbraModSelfManaged(action.PenumbraModName ?? ""))
                 return;
 
             ImGui.PushStyleColor(ImGuiCol.Text, PenumbraGlamourerTakeoverWarningColor);
-            ImGui.TextWrapped($"⚠ {Localization.PenumbraModGlamourerTakeoverWarning}");
+            ImGui.TextWrapped($"! {Localization.PenumbraModGlamourerTakeoverWarning}");
             ImGui.PopStyleColor();
 
             if (Configuration.AutoOverwriteGlamourerPenumbra)
@@ -10423,7 +11156,8 @@ namespace HeelsDesignLinker
             if (!rule.IsActive)
                 return false;
 
-            if (ruleIndex > 0 && rule.BranchKind == RuleBranchKind.Else)
+            // 分组首条始终是“如果”（条件分支）；仅非分组首条的“否则”才无条件兜底命中。
+            if (rule.BranchKind == RuleBranchKind.Else && !IsRuleGroupStart(ruleIndex))
                 return true;
 
             // 使用新的条件系统（多条件组）

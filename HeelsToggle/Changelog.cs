@@ -4,10 +4,33 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.0.0";
+        public const string CurrentVersion = "1.4.1.0";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.1.0",
+                "2026-06-10",
+                [
+                    "规则分组：「同一分组 / 新分组」连接符定义 if/否则如果/否则 链；多分组可同时命中并叠加应用",
+                    "分组 UI：可命名、整体折叠（显示规则条数）、整组拖拽排序，分组间双分割线；分组首条自动为「如果」",
+                    "规则/行动/分组拖拽支持上下半区判断，放置到目标前或后",
+                    "多规则命中时后匹配覆盖前匹配；状态栏显示最后一条匹配规则",
+                    "Glamourer 行动可设装备槽优先级，按优先级解决槽位冲突；UI 三色提示（未解决红 / 已解决浅蓝 / 无冲突白）",
+                    "Penumbra 多规则命中时合并同 Mod 选项；未指定的单选项不再传入空值覆盖已设选项",
+                    "Penumbra Glamourer 接管警告：检测 temp key，自有来源且无冲突时不警告；冲突时提示对应行动编号；符号改为 !",
+                    "修复规则与行动（含 Penumbra 行动组）折叠/展开状态重启后不能正确恢复的问题",
+                ],
+                [
+                    "Rule groups: \"same group / new group\" connectors define if/elseif/else chains; multiple groups can match and stack",
+                    "Group UI: naming, whole-group collapse with rule count, group drag-reorder, double separators; group first rule is always \"if\"",
+                    "Rule/action/group drag uses upper/lower half to drop before or after the target",
+                    "Later matched rules override earlier ones; status bar shows the last matched rule",
+                    "Glamourer actions: per-slot priority and conflict resolution; tri-color UI (unresolved red / resolved light blue / none white)",
+                    "Penumbra: merge options per mod across matched rules; omit empty single-select values so they do not clobber prior settings",
+                    "Penumbra Glamourer takeover warning: temp-key aware; suppress when self-owned and non-conflicting; show conflicting action numbers; use ! glyph",
+                    "Fix rule and action (including Penumbra groups) collapse/expand state not restoring correctly after restart",
+                ]),
             new(
                 "1.4.0.0",
                 "2026-06-07",

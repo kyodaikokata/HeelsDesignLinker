@@ -101,6 +101,14 @@ internal sealed class PenumbraInterop
         SfwMode,
     }
 
+    /// <summary>某 Mod 当前临时层覆盖的归属：无 / 本插件（自己）/ Glamourer。</summary>
+    internal enum PenumbraModTempOverrideOwner
+    {
+        None,
+        Self,
+        Glamourer,
+    }
+
     private readonly IDalamudPluginInterface _pluginInterface;
 
     /// <summary>为 true 时读取含临时层的生效设置（key 见 <see cref="TemporarySettingsReadKey"/>）。</summary>
@@ -117,7 +125,7 @@ internal sealed class PenumbraInterop
 
     private string _takeoverCacheMod = "";
     private int _takeoverCachePlayerIndex = -1;
-    private bool _takeoverCacheResult;
+    private PenumbraModTempOverrideOwner _takeoverCacheOwner = PenumbraModTempOverrideOwner.None;
     private DateTime _takeoverCacheUtc = DateTime.MinValue;
     private static readonly TimeSpan TakeoverCacheInterval = TimeSpan.FromSeconds(1);
 
@@ -661,10 +669,17 @@ internal sealed class PenumbraInterop
             : PenumbraGroupType.Single;
     }
 
-    public bool IsModUnderGlamourerTakeover(int playerObjectIndex, string modDirectory)
+    public bool IsModUnderGlamourerTakeover(int playerObjectIndex, string modDirectory) =>
+        GetModTemporaryOverrideOwner(playerObjectIndex, modDirectory) == PenumbraModTempOverrideOwner.Glamourer;
+
+    /// <summary>
+    /// 判定某 Mod 当前临时层覆盖的归属：优先检测本插件 key（-1211/-1210，视为“自己”），
+    /// 再检测 Glamourer key（-1610/-6160）。结果带 1 秒缓存。
+    /// </summary>
+    public PenumbraModTempOverrideOwner GetModTemporaryOverrideOwner(int playerObjectIndex, string modDirectory)
     {
         if (!IsIpcAvailable() || string.IsNullOrWhiteSpace(modDirectory))
-            return false;
+            return PenumbraModTempOverrideOwner.None;
 
         var key = modDirectory.Trim();
         var now = DateTime.UtcNow;
@@ -672,20 +687,54 @@ internal sealed class PenumbraInterop
             && string.Equals(_takeoverCacheMod, key, StringComparison.OrdinalIgnoreCase)
             && (now - _takeoverCacheUtc) < TakeoverCacheInterval)
         {
-            return _takeoverCacheResult;
+            return _takeoverCacheOwner;
         }
 
-        _takeoverCacheResult = QueryGlamourerTakeover(playerObjectIndex, key);
+        PenumbraModTempOverrideOwner owner;
+        if (QueryTempOverrideHeldByKeys(playerObjectIndex, key,
+                new[] { HeelsDesignLinkerPenumbraLockKey, SfwModePenumbraLockKey }))
+            owner = PenumbraModTempOverrideOwner.Self;
+        else if (QueryGlamourerTakeover(playerObjectIndex, key))
+            owner = PenumbraModTempOverrideOwner.Glamourer;
+        else
+            owner = PenumbraModTempOverrideOwner.None;
+
+        _takeoverCacheOwner = owner;
         _takeoverCacheMod = key;
         _takeoverCachePlayerIndex = playerObjectIndex;
         _takeoverCacheUtc = now;
-        return _takeoverCacheResult;
+        return owner;
+    }
+
+    /// <summary>查询指定 lock key 集合中是否有任意 key 当前持有该 Mod 的临时设置。</summary>
+    private bool QueryTempOverrideHeldByKeys(int playerObjectIndex, string modDirectory, int[] lockKeys)
+    {
+        try
+        {
+            var subscriber = _pluginInterface.GetIpcSubscriber<int, string, string, int, (int, object?, string)>(
+                QueryTemporaryModSettingsPlayerGate);
+
+            var modName = ResolveModDisplayName(modDirectory);
+            foreach (var lockKey in lockKeys)
+            {
+                var (ec, settings, _) = subscriber.InvokeFunc(playerObjectIndex, modDirectory, modName, lockKey);
+                if ((PenumbraIpcEc)ec == PenumbraIpcEc.Success && settings != null)
+                    return true;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return false;
     }
 
     public void InvalidateTakeoverCache()
     {
         _takeoverCacheMod = "";
         _takeoverCachePlayerIndex = -1;
+        _takeoverCacheOwner = PenumbraModTempOverrideOwner.None;
         _takeoverCacheUtc = DateTime.MinValue;
     }
 

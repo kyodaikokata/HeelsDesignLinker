@@ -25,6 +25,18 @@ internal sealed class GlamourerInterop
     private readonly IDalamudPluginInterface _pluginInterface;
     private readonly IObjectTable? _objectTable;
     private readonly Dictionary<string, bool> _feetApplyCache = new(StringComparer.OrdinalIgnoreCase);
+    // design GUID → 实际应用（Apply=true）的装备槽位集合缓存
+    private readonly Dictionary<Guid, HashSet<EquipSlot>> _designSlotCache = new();
+
+    /// <summary>design GUID → 该设计关联（Mod Associations）的 Penumbra Mod 目录集合。</summary>
+    private readonly Dictionary<Guid, HashSet<string>> _designModCache = new();
+
+    private static readonly EquipSlot[] AllEquipSlots =
+    {
+        EquipSlot.MainHand, EquipSlot.OffHand, EquipSlot.Head, EquipSlot.Body,
+        EquipSlot.Hands, EquipSlot.Legs, EquipSlot.Feet, EquipSlot.Ears,
+        EquipSlot.Neck, EquipSlot.Wrists, EquipSlot.RFinger, EquipSlot.LFinger,
+    };
     private List<string> _designNames = [];
     private DateTime _designListFetchedUtc = DateTime.MinValue;
     private static readonly TimeSpan DesignListRefreshInterval = TimeSpan.FromSeconds(30);
@@ -257,6 +269,10 @@ internal sealed class GlamourerInterop
 
     public void InvalidateCache(string? designName = null)
     {
+        // design 槽位/关联 Mod 缓存按 GUID 存储，无法按名精确移除，统一清空（design 编辑后重新读取）。
+        _designSlotCache.Clear();
+        _designModCache.Clear();
+
         if (string.IsNullOrWhiteSpace(designName))
         {
             _feetApplyCache.Clear();
@@ -264,6 +280,123 @@ internal sealed class GlamourerInterop
         }
 
         _feetApplyCache.Remove(designName.Trim());
+    }
+
+    /// <summary>
+    /// 读取某 Glamourer design（按名称）实际会应用（Apply=true）的装备槽位集合。
+    /// 仅统计 Equipment.* 装备槽位，不含 Customize/Parameters。返回 null 表示无法解析。
+    /// </summary>
+    public HashSet<EquipSlot>? GetDesignAppliedEquipmentSlotsByName(string? designName)
+    {
+        if (string.IsNullOrWhiteSpace(designName))
+            return null;
+
+        var guid = GetDesignGuidByName(designName.Trim());
+        if (guid == null || guid.Value == Guid.Empty)
+            return null;
+
+        return GetDesignAppliedEquipmentSlots(guid.Value);
+    }
+
+    /// <summary>
+    /// 读取某 Glamourer design（按 GUID）实际会应用（Apply=true）的装备槽位集合。返回 null 表示无法解析。
+    /// </summary>
+    public HashSet<EquipSlot>? GetDesignAppliedEquipmentSlots(Guid designId)
+    {
+        if (designId == Guid.Empty)
+            return null;
+
+        if (_designSlotCache.TryGetValue(designId, out var cached))
+            return cached;
+
+        if (!IsIpcAvailable())
+            return null;
+
+        try
+        {
+            var designJson = GetDesignJObject(designId);
+            if (designJson == null)
+                return null;
+
+            var slots = new HashSet<EquipSlot>();
+            foreach (var slot in AllEquipSlots)
+            {
+                var applyToken = designJson.SelectToken($"Equipment.{slot}.Apply");
+                if (applyToken?.Type == JTokenType.Boolean && applyToken.ToObject<bool>())
+                    slots.Add(slot);
+            }
+
+            _designSlotCache[designId] = slots;
+            return slots;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>读取某 Glamourer design（按名称）关联（Mod Associations）的 Penumbra Mod 目录集合。</summary>
+    public HashSet<string>? GetDesignAssociatedModDirectoriesByName(string? designName)
+    {
+        if (string.IsNullOrWhiteSpace(designName))
+            return null;
+
+        var guid = GetDesignGuidByName(designName.Trim());
+        if (guid == null || guid.Value == Guid.Empty)
+            return null;
+
+        return GetDesignAssociatedModDirectories(guid.Value);
+    }
+
+    /// <summary>
+    /// 读取某 Glamourer design（按 GUID）关联的 Penumbra Mod 目录集合（design JObject 的 "Mods" 关联）。
+    /// 返回空集合表示该设计无关联 Mod；返回 null 表示无法解析。
+    /// </summary>
+    public HashSet<string>? GetDesignAssociatedModDirectories(Guid designId)
+    {
+        if (designId == Guid.Empty)
+            return null;
+
+        if (_designModCache.TryGetValue(designId, out var cached))
+            return cached;
+
+        if (!IsIpcAvailable())
+            return null;
+
+        try
+        {
+            var designJson = GetDesignJObject(designId);
+            if (designJson == null)
+                return null;
+
+            var mods = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var modsToken = designJson.SelectToken("Mods");
+            if (modsToken is JArray modArray)
+            {
+                foreach (var entry in modArray)
+                {
+                    var dir = entry.SelectToken("Directory")?.ToString();
+                    if (!string.IsNullOrWhiteSpace(dir))
+                        mods.Add(dir.Trim());
+                }
+            }
+            else if (modsToken is JObject modObject)
+            {
+                // 兼容以目录为键的对象映射形式。
+                foreach (var prop in modObject.Properties())
+                {
+                    if (!string.IsNullOrWhiteSpace(prop.Name))
+                        mods.Add(prop.Name.Trim());
+                }
+            }
+
+            _designModCache[designId] = mods;
+            return mods;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     public void RefreshDesignList(bool force = false)
