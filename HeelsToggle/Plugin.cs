@@ -558,6 +558,9 @@ namespace HeelsDesignLinker
         /// <summary>规则持续匹配多久后才开始执行行动（秒），0 表示不等待。</summary>
         public float RuleMatchStableSeconds { get; set; } = 0.25f;
 
+        /// <summary>基准 Moodles apply 后，延迟多久再 apply 规则 Moodles（秒）；0.1～3。</summary>
+        public float BaselineMoodleRuleApplyDelaySeconds { get; set; } = 0.1f;
+
         /// <summary>界面语言；System 跟随系统 UI 语言。</summary>
         public UiLanguagePreference UiLanguage { get; set; } = UiLanguagePreference.System;
 
@@ -858,6 +861,8 @@ namespace HeelsDesignLinker
         private bool skipReapplyForRestoredShutdownMatch;
         /// <summary>本 apply 周期内基准是否成功写入了 Moodles（用于随后让规则 Moodles 再 apply 一次）。</summary>
         private bool baselineMoodleAppliedThisCycle;
+        /// <summary>基准 Moodles apply 后须等待至此时间才允许规则层 Moodles（避免 Moodles 插件异步清 buff 覆盖规则结果）。</summary>
+        private DateTime? ruleMoodlesAllowedAfterUtc;
         
         // 用于UI显示的"上次执行"信息（与去重机制分离）
         private int lastExecutedRuleIndex = -1;
@@ -983,7 +988,7 @@ namespace HeelsDesignLinker
         private bool restoreDefaultsPending;
         private bool wasSettingsTabActive;
         private const string KoFiUrl = "https://ko-fi.com/kokatakyodai";
-        private const int ConfigSchemaVersion = 23;
+        private const int ConfigSchemaVersion = 25;
         private const int SfwGroupRuleIndexBase = -2;
         private const int PenumbraSubHostRuleIndexBase = -100000;
         private const int PenumbraSubHostRuleIndexStride = 1000;
@@ -1105,46 +1110,6 @@ namespace HeelsDesignLinker
                 SaveConfig();
         }
 
-        /// <summary>
-        /// 将误写入旧 Configuration.Rules 的行动合并回当前 RuleSet（UI 曾读写废弃列表导致不同步）。
-        /// </summary>
-        private void SyncLegacyRuleActionsToActiveRuleSet()
-        {
-            if (Configuration.RuleSets.Count == 0)
-                return;
-
-            var activeRules = ActiveRules;
-#pragma warning disable CS0618
-            var legacyRules = Configuration.Rules;
-#pragma warning restore CS0618
-            if (legacyRules == null || legacyRules.Count == 0 || ReferenceEquals(activeRules, legacyRules))
-                return;
-
-            var recovered = 0;
-            var ruleCount = Math.Min(activeRules.Count, legacyRules.Count);
-            for (var ruleIndex = 0; ruleIndex < ruleCount; ruleIndex++)
-            {
-                var activeRule = activeRules[ruleIndex];
-                var legacyRule = legacyRules[ruleIndex];
-                if (legacyRule.Actions == null || legacyRule.Actions.Count <= activeRule.Actions.Count)
-                    continue;
-
-                for (var actionIndex = activeRule.Actions.Count; actionIndex < legacyRule.Actions.Count; actionIndex++)
-                {
-                    var json = JsonConvert.SerializeObject(legacyRule.Actions[actionIndex]);
-                    var copy = JsonConvert.DeserializeObject<HeelsRuleAction>(json);
-                    if (copy == null)
-                        continue;
-
-                    activeRule.Actions.Add(copy);
-                    recovered++;
-                }
-            }
-
-            if (recovered > 0)
-                SaveConfig();
-        }
-
         public Plugin()
         {
             // 自动迁移旧配置文件（从 HeelsToggle.json 到 HeelsDesignLinker.json）
@@ -1157,9 +1122,6 @@ namespace HeelsDesignLinker
             
             // 迁移单条件组到多条件组列表
             MigrateConditionGroupsIfNeeded();
-            
-            // 修复曾写入废弃 Rules 列表的行动
-            SyncLegacyRuleActionsToActiveRuleSet();
             
             _penumbraInterop = new PenumbraInterop(PluginInterface);
             _glamourerInterop = new GlamourerInterop(PluginInterface, ObjectTable);
@@ -1231,6 +1193,19 @@ namespace HeelsDesignLinker
                 if (Configuration.Version < 23)
                 {
                     // v23: 插件启用时校验行动字段分类，错放字段拆分为独立行动。
+                }
+                if (Configuration.Version < 24)
+                {
+                    if (Configuration.BaselineMoodleRuleApplyDelaySeconds <= 0f)
+                        Configuration.BaselineMoodleRuleApplyDelaySeconds = 0.1f;
+                    DeduplicateDuplicateMoodleActionsInRuleSets();
+                }
+                if (Configuration.Version < 25)
+                {
+                    DeduplicateDuplicateMoodleActionsInRuleSets();
+#pragma warning disable CS0618
+                    Configuration.Rules?.Clear();
+#pragma warning restore CS0618
                 }
                 Configuration.Version = ConfigSchemaVersion;
                 PluginInterface.SavePluginConfig(Configuration);
@@ -2060,6 +2035,7 @@ namespace HeelsDesignLinker
                 ClearPenumbraApplyTracking();
                 lastAppliedHonorificJson = "";
                 lastAppliedMoodleKey = "";
+                ruleMoodlesAllowedAfterUtc = null;
             }
 
             // 清除 Honorific（如果新命中集合中没有任何规则需要它）
@@ -2406,6 +2382,7 @@ namespace HeelsDesignLinker
             ClearSfwPenumbraTemporaryOverrides(forceRemove: true);
             lastAppliedHonorificJson = "";
             lastAppliedMoodleKey = "";
+            ruleMoodlesAllowedAfterUtc = null;
             lastMatchedRuleIndex = -1;
             stableTrackingRuleIndex = -1;
             currentAppliedRuleIndices.Clear();
@@ -2631,6 +2608,7 @@ namespace HeelsDesignLinker
                     ClearPenumbraApplyTracking();
                     lastAppliedHonorificJson = "";
                     lastAppliedMoodleKey = "";
+                    ruleMoodlesAllowedAfterUtc = null;
                     lastApplyUtc = DateTime.MinValue;
                 }
             }
@@ -3083,10 +3061,10 @@ namespace HeelsDesignLinker
                 if (newCount > 0)
                     PluginInterface.SavePluginConfig(Configuration);
 
-                ApplyBaselineActions(activeRuleSet, matchedRule, ref appliedAnything);
+                ApplyBaselineActions(activeRuleSet, activeRules, currentAppliedRuleIndices, ref appliedAnything);
             }
 
-            // 基准 Moodles 可能清 buff / 覆盖状态：同周期内须再让规则 Moodles apply 一次，但不跨周期反复。
+            // 基准 Moodles 可能清 buff：延迟后再让规则 Moodles apply（见设置中的基准→规则 Moodles 延迟）。
             if (baselineMoodleAppliedThisCycle)
                 ClearRuleMoodleApplyDedupKeys();
 
@@ -3126,7 +3104,7 @@ namespace HeelsDesignLinker
                         }
                         break;
                     case ActionType.Moodles:
-                        if (!isMoodlesIpcReady)
+                        if (!isMoodlesIpcReady || !IsRuleMoodleApplyAllowed())
                             break;
 
                         if (!string.IsNullOrWhiteSpace(action.MoodleGuid)
@@ -4755,12 +4733,41 @@ namespace HeelsDesignLinker
             foreach (var ruleSet in Configuration.RuleSets)
             {
                 foreach (var rule in ruleSet.Rules)
+                {
+                    extractedCount += SanitizeRuleLevelMoodleFields(rule);
                     extractedCount += SanitizeMisplacedActionList(rule.Actions);
+                }
             }
 
             extractedCount += SanitizeMisplacedActionList(Configuration.SfwModeActions);
 
             return extractedCount;
+        }
+
+        /// <summary>旧版规则级 Moodle 字段迁入 Actions 后清空，避免与行动层重复。</summary>
+        private static int SanitizeRuleLevelMoodleFields(HeelsRule rule)
+        {
+            if (string.IsNullOrWhiteSpace(rule.MoodleGuid))
+                return 0;
+
+            var candidate = new HeelsRuleAction
+            {
+                Type = ActionType.Moodles,
+                MoodleGuid = rule.MoodleGuid,
+                MoodleIsPreset = rule.MoodleIsPreset,
+            };
+
+            var added = 0;
+            if (!ActionsContainMoodleGuid(rule.Actions, rule.MoodleGuid, rule.MoodleIsPreset))
+            {
+                rule.Actions.Add(candidate);
+                added = 1;
+            }
+
+            rule.MoodleGuid = "";
+            rule.MoodleIsPreset = false;
+            rule.EnableMoodles = false;
+            return added;
         }
 
         private static int SanitizeMisplacedActionList(List<HeelsRuleAction> actions)
@@ -4769,7 +4776,7 @@ namespace HeelsDesignLinker
 
             for (var i = 0; i < actions.Count; i++)
             {
-                var extracted = ExtractMisplacedFieldsFromAction(actions[i]);
+                var extracted = ExtractMisplacedFieldsFromAction(actions, actions[i]);
                 if (extracted.Count == 0)
                     continue;
 
@@ -4785,7 +4792,9 @@ namespace HeelsDesignLinker
             return extractedCount;
         }
 
-        private static List<HeelsRuleAction> ExtractMisplacedFieldsFromAction(HeelsRuleAction action)
+        private static List<HeelsRuleAction> ExtractMisplacedFieldsFromAction(
+            IReadOnlyList<HeelsRuleAction> siblingActions,
+            HeelsRuleAction action)
         {
             var extracted = new List<HeelsRuleAction>();
 
@@ -4815,13 +4824,17 @@ namespace HeelsDesignLinker
 
             if (action.Type != ActionType.Moodles && !string.IsNullOrWhiteSpace(action.MoodleGuid))
             {
-                extracted.Add(new HeelsRuleAction
+                if (!ActionsContainMoodleGuid(siblingActions, action.MoodleGuid, action.MoodleIsPreset))
                 {
-                    Type = ActionType.Moodles,
-                    MoodleGuid = action.MoodleGuid,
-                    MoodleIsPreset = action.MoodleIsPreset,
-                    IsActionCollapsed = action.IsActionCollapsed,
-                });
+                    extracted.Add(new HeelsRuleAction
+                    {
+                        Type = ActionType.Moodles,
+                        MoodleGuid = action.MoodleGuid,
+                        MoodleIsPreset = action.MoodleIsPreset,
+                        IsActionCollapsed = action.IsActionCollapsed,
+                    });
+                }
+
                 action.MoodleGuid = "";
                 action.MoodleIsPreset = false;
             }
@@ -4961,7 +4974,7 @@ namespace HeelsDesignLinker
                     .ToList(),
             };
 
-        /// <summary>当前匹配规则是否已使用该基准参数（非 Penumbra；整条跳过）。</summary>
+        /// <summary>指定规则是否已使用该基准参数（非 Penumbra）。</summary>
         private bool MatchedRuleUsesBaselineParameter(HeelsRule rule, BaselineParameterId param)
         {
             foreach (var action in EnumerateEffectiveRuleActions(rule))
@@ -4972,6 +4985,73 @@ namespace HeelsDesignLinker
 
             return false;
         }
+
+        private void DeduplicateDuplicateMoodleActionsInRuleSets()
+        {
+            foreach (var ruleSet in Configuration.RuleSets)
+            {
+                foreach (var rule in ruleSet.Rules)
+                {
+                    if (rule.Actions.Count < 2)
+                        continue;
+
+                    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    for (var i = rule.Actions.Count - 1; i >= 0; i--)
+                    {
+                        var action = rule.Actions[i];
+                        if (action.Type != ActionType.Moodles || string.IsNullOrWhiteSpace(action.MoodleGuid))
+                            continue;
+
+                        var key = $"{action.MoodleGuid}|{action.MoodleIsPreset}";
+                        if (!seen.Add(key))
+                            rule.Actions.RemoveAt(i);
+                    }
+                }
+            }
+        }
+
+        private static bool ActionsContainMoodleGuid(
+            IReadOnlyList<HeelsRuleAction> actions,
+            string moodleGuid,
+            bool isPreset)
+        {
+            foreach (var existing in actions)
+            {
+                if (!string.IsNullOrWhiteSpace(existing.MoodleGuid)
+                    && string.Equals(existing.MoodleGuid, moodleGuid, StringComparison.OrdinalIgnoreCase)
+                    && existing.MoodleIsPreset == isPreset)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private TimeSpan GetBaselineMoodleRuleApplyDelay() =>
+            TimeSpan.FromSeconds(Math.Clamp(Configuration.BaselineMoodleRuleApplyDelaySeconds, 0.1f, 3f));
+
+        /// <summary>当前命中规则集合中是否有任一规则已使用该基准参数（非 Penumbra；整条跳过）。</summary>
+        private bool AnyAppliedRuleUsesBaselineParameter(
+            List<HeelsRule> activeRules,
+            IReadOnlyList<int> appliedIndices,
+            BaselineParameterId param)
+        {
+            foreach (var idx in appliedIndices)
+            {
+                if (idx < 0 || idx >= activeRules.Count)
+                    continue;
+
+                if (MatchedRuleUsesBaselineParameter(activeRules[idx], param))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private bool IsRuleMoodleApplyAllowed() =>
+            !ruleMoodlesAllowedAfterUtc.HasValue
+            || DateTime.UtcNow >= ruleMoodlesAllowedAfterUtc.Value;
 
         private void RestoreShutdownApplySnapshot()
         {
@@ -5216,9 +5296,19 @@ namespace HeelsDesignLinker
         /// <summary>
         /// 应用基准行动（在匹配规则的 Actions 之前调用；与规则共用参数时跳过以免妨碍规则 apply）。
         /// </summary>
-        private void ApplyBaselineActions(RuleSet ruleSet, HeelsRule matchedRule, ref bool appliedAnything)
+        private void ApplyBaselineActions(
+            RuleSet ruleSet,
+            List<HeelsRule> activeRules,
+            IReadOnlyList<int> appliedIndices,
+            ref bool appliedAnything)
         {
             if (!ruleSet.UseBaselineActions || !IsBaselineApplyAllowed())
+                return;
+
+            var primaryRule = appliedIndices.Count > 0 && appliedIndices[0] >= 0 && appliedIndices[0] < activeRules.Count
+                ? activeRules[appliedIndices[0]]
+                : null;
+            if (primaryRule == null)
                 return;
             
             var activeKeys = GetActiveBaselineParameterKeys(ruleSet);
@@ -5233,13 +5323,13 @@ namespace HeelsDesignLinker
                 var param = config.ParameterId;
 
                 if (param.Type != ActionType.Penumbra
-                    && MatchedRuleUsesBaselineParameter(matchedRule, config.ParameterId))
+                    && AnyAppliedRuleUsesBaselineParameter(activeRules, appliedIndices, config.ParameterId))
                     continue;
                 
                 switch (param.Type)
                 {
                     case ActionType.Penumbra:
-                        ApplyBaselinePenumbra(ruleSet, config, matchedRule, ref appliedAnything);
+                        ApplyBaselinePenumbra(ruleSet, config, primaryRule, ref appliedAnything);
                         break;
                     case ActionType.Glamourer:
                         ApplyBaselineGlamourer(param, config, ref appliedAnything);
@@ -5521,6 +5611,7 @@ namespace HeelsDesignLinker
             {
                 lastAppliedActionKeys.Add(applyKey);
                 baselineMoodleAppliedThisCycle = true;
+                ruleMoodlesAllowedAfterUtc = DateTime.UtcNow + GetBaselineMoodleRuleApplyDelay();
                 appliedAnything = true;
             }
             else
@@ -5580,6 +5671,7 @@ namespace HeelsDesignLinker
             ClearPenumbraApplyTracking();
             lastAppliedHonorificJson = "";
             lastAppliedMoodleKey = "";
+            ruleMoodlesAllowedAfterUtc = null;
             lastMatchedRuleIndex = -1;
             stableTrackingRuleIndex = -1;
             lastMatchedSetSignature = "";
@@ -7044,6 +7136,18 @@ namespace HeelsDesignLinker
             else
                 ImGui.TextDisabled(Localization.RuleMatchStableDelayHint);
 
+            ImGui.SetNextItemWidth(200);
+            var baselineMoodleDelay = Configuration.BaselineMoodleRuleApplyDelaySeconds;
+            if (SliderFloatWithManualInput(Localization.BaselineMoodleRuleApplyDelay, ref baselineMoodleDelay, 0.1f, 3f, "%.2f s", "baseline_moodle_rule_delay"))
+            {
+                Configuration.BaselineMoodleRuleApplyDelaySeconds = Math.Clamp(baselineMoodleDelay, 0.1f, 3f);
+                SaveConfig();
+            }
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(Localization.BaselineMoodleRuleApplyDelayHint + "\n" + Localization.DoubleClickToInput);
+            else
+                ImGui.TextDisabled(Localization.BaselineMoodleRuleApplyDelayHint);
+
             var showDtrStatusBar = Configuration.ShowDtrStatusBar;
             if (ImGui.Checkbox(Localization.ShowDtrStatusBar, ref showDtrStatusBar))
             {
@@ -7181,6 +7285,7 @@ namespace HeelsDesignLinker
             Configuration.DecimalPrecision = 4;
             Configuration.ApplyCooldownSeconds = 0.5f;
             Configuration.RuleMatchStableSeconds = 0.25f;
+            Configuration.BaselineMoodleRuleApplyDelaySeconds = 0.1f;
             Configuration.UiLanguage = UiLanguagePreference.System;
             Configuration.SimpleHeelsHeightMode = SimpleHeelsHeightMode.Default; // 保留用于兼容性
             Configuration.WindowWidth = DefaultWindowWidth;

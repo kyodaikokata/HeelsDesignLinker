@@ -23,8 +23,8 @@
       "other"
     ],
     "DalamudApiLevel": 15,
-    "AssemblyVersion": "1.4.2.5",
-    "Changelog": "1.4.2.5: 命中集合变化后整组规则各 apply 一次（修复 1+3→1+4 仅新规则生效）。详见游戏内更新履历。",
+    "AssemblyVersion": "1.4.2.7",
+    "Changelog": "1.4.2.7: 回退基准 Moodles 独占逻辑；修复更新插件凭空多出 Moodles 行动。详见游戏内更新履历。",
     "LastUpdate": "0",
     "RepoUrl": "https://github.com/kyodaikokata/HeelsDesignLinker",
     "DownloadLinkInstall": "https://raw.githubusercontent.com/kyodaikokata/KKT-Catalog/main/plugins/HeelsDesignLinker/latest-cn.zip",

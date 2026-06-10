@@ -4,10 +4,36 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.5";
+        public const string CurrentVersion = "1.4.2.7";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.7",
+                "2026-06-10",
+                [
+                    "回退 1.4.2.6 基准 Moodles 独占逻辑（会导致规则 Moodles 无法生效）",
+                    "修复每次更新插件时从废弃 Rules 列表合并行动、凭空多出 Moodles 行动（如穿鞋规则露出全身）的问题",
+                    "校验配置时跳过已存在的同 GUID Moodles 拆分；迁移清空废弃 Rules 列表并去重",
+                ],
+                [
+                    "Revert 1.4.2.6 baseline Moodle ownership skip (broke rule Moodle apply)",
+                    "Fix phantom Moodle actions added on each plugin update from stale legacy Rules list",
+                    "Sanitize skips duplicate Moodle GUID splits; migration clears legacy Rules and dedupes",
+                ]),
+            new(
+                "1.4.2.6",
+                "2026-06-10",
+                [
+                    "修复规则已声明的 Moodles 仍被基准层重复 apply（如穿鞋规则露出全身 preset 每次更新插件叠一层）的问题",
+                    "设置中新增「基准→规则 Moodles 延迟」（默认 0.1s，可调 0.1～3s）",
+                    "废弃 Rules 列表同步到规则集时跳过已存在的等价行动，并迁移去重规则内重复 Moodles 行动",
+                ],
+                [
+                    "Fix baseline re-applying Moodles already owned by a rule action (e.g. stacked preset on each plugin update)",
+                    "Settings: Baseline→Rule Moodles delay (default 0.1s, range 0.1–3s)",
+                    "Legacy Rules sync skips equivalent actions; migration dedupes duplicate Moodle actions per rule",
+                ]),
             new(
                 "1.4.2.5",
                 "2026-06-10",

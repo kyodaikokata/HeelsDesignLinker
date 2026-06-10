@@ -405,6 +405,12 @@ namespace HeelsDesignLinker
         public static string RuleMatchStableDelayHint => IsChine
             ? "同一规则需持续匹配该时长后才会执行行动，可减轻切图/加载时高度抖动误触发；0 = 不等待（默认 0.5 秒）"
             : "Actions run only after the same rule stays matched for this long; reduces false triggers during zone loads. 0 = no wait (default 0.5s)";
+        public static string BaselineMoodleRuleApplyDelay => IsChine
+            ? "基准→规则 Moodles 延迟"
+            : "Baseline→Rule Moodles Delay";
+        public static string BaselineMoodleRuleApplyDelayHint => IsChine
+            ? "基准 Moodles 成功 apply 后，等待该时长再 apply 规则 Moodles，避免 Moodles 清 buff 覆盖规则结果（0.1～3 秒，默认 0.1 秒）"
+            : "After baseline Moodles apply, wait this long before rule Moodles apply, so Moodles buff clears do not overwrite rule results (0.1–3s, default 0.1s)";
         public static string RuleMatchStableWait(double remainingSeconds) => IsChine
             ? $"规则匹配稳定等待 {remainingSeconds:F2}s"
             : $"Rule match stable wait {remainingSeconds:F2}s";
