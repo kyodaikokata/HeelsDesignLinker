@@ -4,10 +4,23 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.1";
+        public const string CurrentVersion = "1.4.2.2";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.2",
+                "2026-06-10",
+                [
+                    "插件启用时自动校验配置：将错放在非对应类型行动上的字段（如 Honorific 行动中的 GlamourerDesign）拆分为独立行动并保存",
+                    "Glamourer 应用仅限 Glamourer 类型行动，避免误填字段被当作设计应用",
+                    "Penumbra 行动组仅剩一条子行动时，删除该子行动会移除整个 Penumbra 行动组（修复此前确认后无法删除的问题）",
+                ],
+                [
+                    "On plugin load, validate config and split misplaced fields (e.g. GlamourerDesign on Honorific actions) into separate actions",
+                    "Glamourer apply is limited to Glamourer-type actions so stray fields are not applied as designs",
+                    "Deleting the only Penumbra sub-action now removes the whole Penumbra action group (fixes confirm dialog with no effect)",
+                ]),
             new(
                 "1.4.2.1",
                 "2026-06-10",

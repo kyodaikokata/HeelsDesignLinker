@@ -23,8 +23,8 @@
       "other"
     ],
     "DalamudApiLevel": 15,
-    "AssemblyVersion": "1.4.2.1",
-    "Changelog": "1.4.2.1: Skip baseline/rule re-apply when match unchanged after reload/login. See in-app changelog.",
+    "AssemblyVersion": "1.4.2.2",
+    "Changelog": "1.4.2.2: Validate config on load; split misplaced action fields. See in-app changelog.",
     "LastUpdate": "0",
     "RepoUrl": "https://github.com/kyodaikokata/HeelsDesignLinker",
     "DownloadLinkInstall": "https://raw.githubusercontent.com/kyodaikokata/KKT-Catalog/main/plugins/HeelsDesignLinker/latest-global.zip",

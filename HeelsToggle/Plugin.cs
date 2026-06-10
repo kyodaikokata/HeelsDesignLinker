@@ -981,7 +981,7 @@ namespace HeelsDesignLinker
         private bool restoreDefaultsPending;
         private bool wasSettingsTabActive;
         private const string KoFiUrl = "https://ko-fi.com/kokatakyodai";
-        private const int ConfigSchemaVersion = 22;
+        private const int ConfigSchemaVersion = 23;
         private const int SfwGroupRuleIndexBase = -2;
         private const int PenumbraSubHostRuleIndexBase = -100000;
         private const int PenumbraSubHostRuleIndexStride = 1000;
@@ -1226,8 +1226,19 @@ namespace HeelsDesignLinker
                 {
                     // v22: LastShutdown* 字段用于插件重载后恢复命中与 apply 去重状态。
                 }
+                if (Configuration.Version < 23)
+                {
+                    // v23: 插件启用时校验行动字段分类，错放字段拆分为独立行动。
+                }
                 Configuration.Version = ConfigSchemaVersion;
                 PluginInterface.SavePluginConfig(Configuration);
+            }
+
+            var sanitizedActionCount = SanitizeMisplacedActionFields();
+            if (sanitizedActionCount > 0)
+            {
+                PluginLog.Information(Localization.ConfigSanitizedMisplacedActions(sanitizedActionCount));
+                SaveConfig();
             }
 
             Localization.SetLanguagePreference(Configuration.UiLanguage);
@@ -1297,7 +1308,8 @@ namespace HeelsDesignLinker
         }
 
         private static bool ActionUsesGlamourer(HeelsRuleAction action) =>
-            !string.IsNullOrWhiteSpace(action.GlamourerDesign);
+            action.Type == ActionType.Glamourer
+            && !string.IsNullOrWhiteSpace(action.GlamourerDesign);
 
         private static bool HasLegacyFlatPenumbraFields(HeelsRuleAction action) =>
             action.PenumbraActionKind != PenumbraActionKind.SetModOption
@@ -4705,6 +4717,222 @@ namespace HeelsDesignLinker
             }
         }
 
+        /// <summary>
+        /// 插件启用时校验行动列表：将错放在非对应类型行动上的字段拆分为独立行动（插入原行动之后）。
+        /// </summary>
+        private int SanitizeMisplacedActionFields()
+        {
+            var extractedCount = 0;
+
+            foreach (var ruleSet in Configuration.RuleSets)
+            {
+                foreach (var rule in ruleSet.Rules)
+                    extractedCount += SanitizeMisplacedActionList(rule.Actions);
+            }
+
+            extractedCount += SanitizeMisplacedActionList(Configuration.SfwModeActions);
+
+            return extractedCount;
+        }
+
+        private static int SanitizeMisplacedActionList(List<HeelsRuleAction> actions)
+        {
+            var extractedCount = 0;
+
+            for (var i = 0; i < actions.Count; i++)
+            {
+                var extracted = ExtractMisplacedFieldsFromAction(actions[i]);
+                if (extracted.Count == 0)
+                    continue;
+
+                extractedCount += extracted.Count;
+                actions.InsertRange(i + 1, extracted);
+
+                if (!ActionHasEffectivePayload(actions[i]))
+                    actions.RemoveAt(i);
+
+                i += extracted.Count;
+            }
+
+            return extractedCount;
+        }
+
+        private static List<HeelsRuleAction> ExtractMisplacedFieldsFromAction(HeelsRuleAction action)
+        {
+            var extracted = new List<HeelsRuleAction>();
+
+            if (action.Type != ActionType.Glamourer && !string.IsNullOrWhiteSpace(action.GlamourerDesign))
+            {
+                extracted.Add(new HeelsRuleAction
+                {
+                    Type = ActionType.Glamourer,
+                    GlamourerDesign = action.GlamourerDesign.Trim(),
+                    GlamourerPriority = action.GlamourerPriority,
+                    IsActionCollapsed = action.IsActionCollapsed,
+                });
+                action.GlamourerDesign = "";
+                action.GlamourerPriority = 0;
+            }
+
+            if (action.Type != ActionType.Honorific && !string.IsNullOrWhiteSpace(action.HonorificTitleJson))
+            {
+                extracted.Add(new HeelsRuleAction
+                {
+                    Type = ActionType.Honorific,
+                    HonorificTitleJson = action.HonorificTitleJson,
+                    IsActionCollapsed = action.IsActionCollapsed,
+                });
+                action.HonorificTitleJson = "";
+            }
+
+            if (action.Type != ActionType.Moodles && !string.IsNullOrWhiteSpace(action.MoodleGuid))
+            {
+                extracted.Add(new HeelsRuleAction
+                {
+                    Type = ActionType.Moodles,
+                    MoodleGuid = action.MoodleGuid,
+                    MoodleIsPreset = action.MoodleIsPreset,
+                    IsActionCollapsed = action.IsActionCollapsed,
+                });
+                action.MoodleGuid = "";
+                action.MoodleIsPreset = false;
+            }
+
+            if (action.Type != ActionType.SoundMixer && HasMisplacedSoundMixerFields(action))
+            {
+                extracted.Add(new HeelsRuleAction
+                {
+                    Type = ActionType.SoundMixer,
+                    SoundMixerActionKind = action.SoundMixerActionKind,
+                    SoundMixerPresetName = action.SoundMixerPresetName ?? "",
+                    SoundMixerGroupName = action.SoundMixerGroupName ?? "",
+                    SoundMixerGroupVolume = action.SoundMixerGroupVolume,
+                    SoundMixerPriority = action.SoundMixerPriority,
+                    IsActionCollapsed = action.IsActionCollapsed,
+                });
+                ClearSoundMixerFields(action);
+            }
+
+            if (action.Type != ActionType.Penumbra && HasMisplacedPenumbraFields(action))
+            {
+                extracted.Add(CreatePenumbraActionFromMisplaced(action));
+                ClearPenumbraFields(action);
+            }
+
+            return extracted;
+        }
+
+        private static bool ActionHasEffectivePayload(HeelsRuleAction action) =>
+            action.Type switch
+            {
+                ActionType.Glamourer => !string.IsNullOrWhiteSpace(action.GlamourerDesign),
+                ActionType.Penumbra => ActionHasConfiguredPenumbraPayload(action),
+                ActionType.Honorific => !string.IsNullOrWhiteSpace(action.HonorificTitleJson),
+                ActionType.Moodles => !string.IsNullOrWhiteSpace(action.MoodleGuid),
+                ActionType.SoundMixer => !string.IsNullOrWhiteSpace(action.SoundMixerPresetName)
+                    || !string.IsNullOrWhiteSpace(action.SoundMixerGroupName),
+                _ => false,
+            };
+
+        private static bool ActionHasConfiguredPenumbraPayload(HeelsRuleAction action)
+        {
+            if (action.PenumbraGroup != null)
+            {
+                var group = action.PenumbraGroup;
+                if (!string.IsNullOrWhiteSpace(group.PenumbraModName))
+                    return true;
+
+                return group.SubActions.Any(sub => !string.IsNullOrWhiteSpace(sub.PenumbraOption));
+            }
+
+            return HasLegacyFlatPenumbraFields(action);
+        }
+
+        private static bool HasMisplacedPenumbraFields(HeelsRuleAction action) =>
+            action.Type != ActionType.Penumbra && ActionHasConfiguredPenumbraPayload(action);
+
+        private static bool HasMisplacedSoundMixerFields(HeelsRuleAction action) =>
+            action.Type != ActionType.SoundMixer
+            && (!string.IsNullOrWhiteSpace(action.SoundMixerPresetName)
+                || !string.IsNullOrWhiteSpace(action.SoundMixerGroupName));
+
+        private static void ClearSoundMixerFields(HeelsRuleAction action)
+        {
+            action.SoundMixerActionKind = SoundMixerActionKind.TemporaryPreset;
+            action.SoundMixerPresetName = "";
+            action.SoundMixerGroupName = "";
+            action.SoundMixerGroupVolume = 1.0f;
+            action.SoundMixerPriority = SoundMixerInterop.DefaultPriority;
+        }
+
+        private static void ClearPenumbraFields(HeelsRuleAction action)
+        {
+            action.PenumbraGroup = null;
+            action.PenumbraActionKind = PenumbraActionKind.SetModOption;
+            action.PenumbraCollection = "Default";
+            action.PenumbraModName = "";
+            action.PenumbraOption = "";
+            action.PenumbraOptionName = "";
+            action.PenumbraOptionEnabled = true;
+            action.PenumbraOverwriteGlamourer = false;
+            action.PenumbraMultiToggleStates.Clear();
+        }
+
+        private static HeelsRuleAction CreatePenumbraActionFromMisplaced(HeelsRuleAction source)
+        {
+            if (source.PenumbraGroup != null)
+            {
+                return new HeelsRuleAction
+                {
+                    Type = ActionType.Penumbra,
+                    PenumbraGroup = ClonePenumbraActionGroup(source.PenumbraGroup),
+                    IsActionCollapsed = source.IsActionCollapsed,
+                };
+            }
+
+            return new HeelsRuleAction
+            {
+                Type = ActionType.Penumbra,
+                PenumbraActionKind = source.PenumbraActionKind,
+                PenumbraCollection = string.IsNullOrWhiteSpace(source.PenumbraCollection)
+                    ? "Default"
+                    : source.PenumbraCollection,
+                PenumbraModName = source.PenumbraModName ?? "",
+                PenumbraOption = source.PenumbraOption ?? "",
+                PenumbraOptionName = source.PenumbraOptionName ?? "",
+                PenumbraOptionEnabled = source.PenumbraOptionEnabled,
+                PenumbraOverwriteGlamourer = source.PenumbraOverwriteGlamourer,
+                PenumbraMultiToggleStates = new Dictionary<string, bool>(
+                    source.PenumbraMultiToggleStates,
+                    StringComparer.OrdinalIgnoreCase),
+                IsActionCollapsed = source.IsActionCollapsed,
+            };
+        }
+
+        private static PenumbraActionGroup ClonePenumbraActionGroup(PenumbraActionGroup source) =>
+            new()
+            {
+                PenumbraCollection = string.IsNullOrWhiteSpace(source.PenumbraCollection)
+                    ? "Default"
+                    : source.PenumbraCollection,
+                PenumbraModName = source.PenumbraModName ?? "",
+                IsCollapsed = source.IsCollapsed,
+                SubActions = source.SubActions
+                    .Select(sub => new PenumbraSubAction
+                    {
+                        PenumbraActionKind = sub.PenumbraActionKind,
+                        PenumbraOption = sub.PenumbraOption ?? "",
+                        PenumbraOptionName = sub.PenumbraOptionName ?? "",
+                        PenumbraOptionEnabled = sub.PenumbraOptionEnabled,
+                        PenumbraOverwriteGlamourer = sub.PenumbraOverwriteGlamourer,
+                        PenumbraMultiToggleStates = new Dictionary<string, bool>(
+                            sub.PenumbraMultiToggleStates,
+                            StringComparer.OrdinalIgnoreCase),
+                        IsCollapsed = sub.IsCollapsed,
+                    })
+                    .ToList(),
+            };
+
         /// <summary>当前匹配规则是否已使用该基准参数（非 Penumbra；整条跳过）。</summary>
         private bool MatchedRuleUsesBaselineParameter(HeelsRule rule, BaselineParameterId param)
         {
@@ -8038,13 +8266,22 @@ namespace HeelsDesignLinker
                             actionToDeleteRuleIndex,
                             out var hostRuleIndex,
                             out var groupActionIndex)
-                        && actionToDeleteIndex >= 0)
+                        && actionToDeleteIndex >= 0
+                        && hostRuleIndex >= 0
+                        && hostRuleIndex < ActiveRules.Count
+                        && groupActionIndex >= 0
+                        && groupActionIndex < ActiveRules[hostRuleIndex].Actions.Count)
                     {
                         var groupAction = ActiveRules[hostRuleIndex].Actions[groupActionIndex];
-                        var group = EnsurePenumbraGroupOnAction(groupAction);
-                        if (actionToDeleteIndex < group.SubActions.Count)
+                        var group = groupAction.PenumbraGroup;
+                        if (group != null
+                            && actionToDeleteIndex < group.SubActions.Count)
                         {
-                            group.SubActions.RemoveAt(actionToDeleteIndex);
+                            if (group.SubActions.Count == 1)
+                                ActiveRules[hostRuleIndex].Actions.RemoveAt(groupActionIndex);
+                            else
+                                group.SubActions.RemoveAt(actionToDeleteIndex);
+
                             PersistRuleSetAfterActionMutation();
                             deleted = true;
                         }
@@ -8058,10 +8295,21 @@ namespace HeelsDesignLinker
                             var sfwGroup = Configuration.SfwModeActionGroups[sfwGroupIndex];
                             if (actionToDeleteIndex < sfwGroup.SubActions.Count)
                             {
-                                sfwGroup.SubActions.RemoveAt(actionToDeleteIndex);
-                                if (sfwGroup.SubActions.Count == 0
-                                    && Configuration.SfwModeActionGroups.All(g => g.SubActions.Count == 0))
-                                    ClearSfwPenumbraApplyTracking();
+                                if (sfwGroup.SubActions.Count == 1)
+                                {
+                                    ClearPenumbraDedupForMod(
+                                        sfwGroup.PenumbraCollection,
+                                        sfwGroup.PenumbraModName,
+                                        PenumbraApplyLayerConfig.Sfw);
+                                    Configuration.SfwModeActionGroups.RemoveAt(sfwGroupIndex);
+                                    if (Configuration.SfwModeActionGroups.All(g => g.SubActions.Count == 0))
+                                        ClearSfwPenumbraApplyTracking();
+                                }
+                                else
+                                {
+                                    sfwGroup.SubActions.RemoveAt(actionToDeleteIndex);
+                                }
+
                                 PersistRuleSetAfterActionMutation();
                                 deleted = true;
                             }
