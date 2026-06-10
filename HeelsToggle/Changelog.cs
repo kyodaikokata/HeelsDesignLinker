@@ -4,10 +4,19 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.3";
+        public const string CurrentVersion = "1.4.2.4";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.4",
+                "2026-06-10",
+                [
+                    "基准 Moodles 在本周期成功 apply 后，同周期内清除规则层 Moodles 去重，使规则行动再执行一次（不跨周期反复）",
+                ],
+                [
+                    "After baseline Moodles apply in a cycle, rule Moodle dedup is cleared so rule actions run once more that cycle only",
+                ]),
             new(
                 "1.4.2.3",
                 "2026-06-10",

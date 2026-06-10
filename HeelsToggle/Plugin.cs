@@ -856,6 +856,8 @@ namespace HeelsDesignLinker
         private string lastAppliedMoodleKey = "";
         /// <summary>启动后若命中与上次关闭相同，跳过一次基准/规则 re-apply。</summary>
         private bool skipReapplyForRestoredShutdownMatch;
+        /// <summary>本 apply 周期内基准是否成功写入了 Moodles（用于随后让规则 Moodles 再 apply 一次）。</summary>
+        private bool baselineMoodleAppliedThisCycle;
         
         // 用于UI显示的"上次执行"信息（与去重机制分离）
         private int lastExecutedRuleIndex = -1;
@@ -2672,6 +2674,16 @@ namespace HeelsDesignLinker
         private static string BuildRuleMoodleApplyKey(HeelsRuleAction action) =>
             $"M:{action.MoodleGuid}|{(action.MoodleIsPreset ? "preset" : "status")}";
 
+        private void ClearRuleMoodleApplyDedupKeys()
+        {
+            foreach (var key in lastAppliedActionKeys
+                         .Where(k => k.StartsWith("M:", StringComparison.Ordinal))
+                         .ToList())
+            {
+                lastAppliedActionKeys.Remove(key);
+            }
+        }
+
         private bool IsApplyCooldownElapsed(out string status)
         {
             var cooldown = Math.Max(0f, Configuration.ApplyCooldownSeconds);
@@ -3046,6 +3058,7 @@ namespace HeelsDesignLinker
             var appliedAnything = false;
             var configDirty = false;
             appliedActionSummariesThisCycle.Clear();
+            baselineMoodleAppliedThisCycle = false;
 
             // 收集本周期全部命中规则（主规则 + AND 共存附加规则），按列表顺序（后覆盖前）。
             var appliedRules = new List<HeelsRule>(currentAppliedRuleIndices.Count);
@@ -3065,6 +3078,10 @@ namespace HeelsDesignLinker
 
                 ApplyBaselineActions(activeRuleSet, matchedRule, ref appliedAnything);
             }
+
+            // 基准 Moodles 可能清 buff / 覆盖状态：同周期内须再让规则 Moodles apply 一次，但不跨周期反复。
+            if (baselineMoodleAppliedThisCycle)
+                ClearRuleMoodleApplyDedupKeys();
 
             if (ApplyPenumbraActionsForRules(appliedRules, ref appliedAnything))
                 configDirty = true;
@@ -5496,6 +5513,7 @@ namespace HeelsDesignLinker
             if (_moodlesInterop.TryApply(localPlayer, moodleId, isPreset, out var error))
             {
                 lastAppliedActionKeys.Add(applyKey);
+                baselineMoodleAppliedThisCycle = true;
                 appliedAnything = true;
             }
             else
