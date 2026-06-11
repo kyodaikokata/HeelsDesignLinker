@@ -210,6 +210,10 @@ namespace HeelsDesignLinker
         /// <summary>是否是新检测到的参数（用于UI高亮）</summary>
         [JsonIgnore]
         public bool IsNew { get; set; }
+
+        /// <summary>用户手动添加的基准项（刷新扫描不会移除；可从 UI 删除）。</summary>
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Include)]
+        public bool IsManuallyAdded { get; set; }
     }
 
     /// <summary>条件类型枚举</summary>
@@ -596,6 +600,9 @@ namespace HeelsDesignLinker
         /// <summary>apply 前自动清除 Glamourer 在同一 Mod 上的 Penumbra 临时层。</summary>
         public bool AutoOverwriteGlamourerPenumbra { get; set; } = false;
 
+        /// <summary>调试页各栏目是否展开（UI 状态），键为稳定英文标识。</summary>
+        public Dictionary<string, bool> DebugTabExpandedSections { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>旧版 Penumbra 全局设置，仅用于迁移。</summary>
         public string PenumbraCollection { get; set; } = "Default";
         public string PenumbraModName { get; set; } = "";
@@ -678,6 +685,10 @@ namespace HeelsDesignLinker
         /// <summary>规则 UI 中是否折叠该行动详情。</summary>
         [JsonProperty(DefaultValueHandling = DefaultValueHandling.Include)]
         public bool IsActionCollapsed { get; set; }
+
+        /// <summary>SFW 模式激活时该行动是否参与应用（默认 true = 参与）。</summary>
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Include)]
+        public bool SfwModeEnabled { get; set; } = true;
     }
 
     public class HeelsRule
@@ -888,6 +899,10 @@ namespace HeelsDesignLinker
         // 行动删除确认相关
         private int actionToDeleteRuleIndex = -1;
         private int actionToDeleteIndex = -1;
+        private ActionType _manualBaselineAddType = ActionType.Glamourer;
+        private readonly HeelsRuleAction _manualBaselineAddDraft = new();
+        private readonly PenumbraActionGroup _manualBaselineAddPenumbraGroup = new();
+        private string? _manualBaselineDeleteConfirmKey;
         
         // 条件拖拽排序相关
         private int? _conditionDragSourceRuleIndex;
@@ -907,6 +922,9 @@ namespace HeelsDesignLinker
         private int conditionToDeleteIndex = -1;
         
         private readonly AppearanceChangeTracker _appearanceChangeTracker = new();
+        private bool _wasAppearanceTransformActive;
+        private string? _lastAppliedAppearanceFingerprintKey;
+        private bool _lastAppliedSfwModeForFingerprint;
 
         private bool isGlamourerAvailable = false;
         private bool isSimpleHeelsAvailable = false;
@@ -988,7 +1006,7 @@ namespace HeelsDesignLinker
         private bool restoreDefaultsPending;
         private bool wasSettingsTabActive;
         private const string KoFiUrl = "https://ko-fi.com/kokatakyodai";
-        private const int ConfigSchemaVersion = 25;
+        private const int ConfigSchemaVersion = 28;
         private const int SfwGroupRuleIndexBase = -2;
         private const int PenumbraSubHostRuleIndexBase = -100000;
         private const int PenumbraSubHostRuleIndexStride = 1000;
@@ -1207,6 +1225,18 @@ namespace HeelsDesignLinker
                     Configuration.Rules?.Clear();
 #pragma warning restore CS0618
                 }
+                if (Configuration.Version < 26)
+                {
+                    // v26: HeelsRuleAction.SfwModeEnabled（默认 true，旧行动在 SFW 模式下仍参与应用）。
+                }
+                if (Configuration.Version < 27)
+                {
+                    // v27: BaselineActionConfig.IsManuallyAdded（默认 false）。
+                }
+                if (Configuration.Version < 28)
+                {
+                    Configuration.DebugTabExpandedSections ??= new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                }
                 Configuration.Version = ConfigSchemaVersion;
                 PluginInterface.SavePluginConfig(Configuration);
             }
@@ -1386,7 +1416,10 @@ namespace HeelsDesignLinker
 #pragma warning restore
         }
 
-        private static HeelsRuleAction FlattenPenumbraSubAction(PenumbraActionGroup group, PenumbraSubAction sub) =>
+        private static HeelsRuleAction FlattenPenumbraSubAction(
+            PenumbraActionGroup group,
+            PenumbraSubAction sub,
+            HeelsRuleAction? parentAction = null) =>
             new()
             {
                 Type = ActionType.Penumbra,
@@ -1400,6 +1433,7 @@ namespace HeelsDesignLinker
                 PenumbraMultiToggleStates = new Dictionary<string, bool>(
                     sub.PenumbraMultiToggleStates,
                     StringComparer.OrdinalIgnoreCase),
+                SfwModeEnabled = parentAction?.SfwModeEnabled ?? true,
             };
 
         /// <summary>将 UI 临时扁平对象写回 Penumbra 子行动（SaveConfig 前必须同步，否则磁盘仍为旧值）。</summary>
@@ -1445,8 +1479,8 @@ namespace HeelsDesignLinker
             SaveConfig();
         }
 
-        private List<HeelsRuleAction> FlattenPenumbraGroup(PenumbraActionGroup group) =>
-            group.SubActions.Select(sub => FlattenPenumbraSubAction(group, sub)).ToList();
+        private List<HeelsRuleAction> FlattenPenumbraGroup(PenumbraActionGroup group, HeelsRuleAction? parentAction = null) =>
+            group.SubActions.Select(sub => FlattenPenumbraSubAction(group, sub, parentAction)).ToList();
 
         private List<HeelsRuleAction> FlattenPenumbraGroupAction(HeelsRuleAction groupAction)
         {
@@ -1454,7 +1488,7 @@ namespace HeelsDesignLinker
                 return [];
 
             var group = EnsurePenumbraGroupOnAction(groupAction);
-            return FlattenPenumbraGroup(group);
+            return FlattenPenumbraGroup(group, groupAction);
         }
 
         private List<HeelsRuleAction> FlattenRulePenumbraActions(HeelsRule rule) =>
@@ -1811,6 +1845,12 @@ namespace HeelsDesignLinker
             ];
         }
 
+        private bool IsActionActiveInSfwMode(HeelsRuleAction action) =>
+            !Configuration.SfwModeActive || action.SfwModeEnabled;
+
+        private IEnumerable<HeelsRuleAction> EnumerateRuleActionsForApply(HeelsRule rule) =>
+            GetRuleActions(rule).Where(IsActionActiveInSfwMode);
+
         private void EnsureRuleHasActions(int ruleIndex)
         {
             var rules = ActiveRules;
@@ -2001,7 +2041,8 @@ namespace HeelsDesignLinker
             return trimmed;
         }
 
-        private void OnMatchedRuleSetChanged(
+        /// <summary>命中集合变化时仅同步元数据（不清 Penumbra 临时层 / dedup）。</summary>
+        private void SyncMatchedRuleSetMetadata(
             List<HeelsRule> activeRules,
             List<int> appliedIndices,
             string newSignature,
@@ -2010,35 +2051,8 @@ namespace HeelsDesignLinker
             if (newSignature == lastMatchedSetSignature)
                 return;
 
-            var hadMatch = !string.IsNullOrEmpty(lastMatchedSetSignature);
             var hasMatch = appliedIndices.Count > 0;
 
-            ClearSoundMixerTemporaryOverrides();
-
-            if (!hasMatch)
-            {
-                ClearPenumbraTemporaryOverrides();
-                ClearPenumbraApplyTracking();
-                lastAppliedHonorificJson = "";
-                lastAppliedMoodleKey = "";
-                lastApplyUtc = DateTime.MinValue;
-            }
-            else if (hadMatch)
-            {
-                // 命中集合 A → B：先清 -1211，再 apply；本周期 batch 禁止合并旧临时选项组
-                ClearPenumbraTemporaryOverrides(forceRemove: true);
-            }
-
-            if (hasMatch)
-            {
-                // 与 UpdateRuleMatchStability 双保险：apply 前确保整组规则行动各 apply 一次
-                ClearPenumbraApplyTracking();
-                lastAppliedHonorificJson = "";
-                lastAppliedMoodleKey = "";
-                ruleMoodlesAllowedAfterUtc = null;
-            }
-
-            // 清除 Honorific（如果新命中集合中没有任何规则需要它）
             var hadHonorific = !string.IsNullOrEmpty(lastAppliedHonorificJson);
             var wantsHonorific = false;
             foreach (var idx in appliedIndices)
@@ -2062,12 +2076,238 @@ namespace HeelsDesignLinker
             lastMatchedRuleIndex = hasMatch ? appliedIndices[0] : -1;
         }
 
+        /// <summary>确认将执行 apply 后，清临时层与去重（避免在 DrawObject 已达标时破坏试穿/预览）。</summary>
+        private void PrepareMatchedRuleSetApply(bool hadMatch, bool hasMatch)
+        {
+            ClearSoundMixerTemporaryOverrides();
+
+            if (!hasMatch)
+            {
+                ClearPenumbraTemporaryOverrides();
+                ClearPenumbraApplyTracking();
+                lastAppliedHonorificJson = "";
+                lastAppliedMoodleKey = "";
+                lastApplyUtc = DateTime.MinValue;
+                return;
+            }
+
+            if (hadMatch)
+            {
+                // 命中集合 A → B：先清 -1211，再 apply；本周期 batch 禁止合并旧临时选项组
+                ClearPenumbraTemporaryOverrides(forceRemove: true);
+            }
+
+            ClearPenumbraApplyTracking();
+            lastAppliedHonorificJson = "";
+            lastAppliedMoodleKey = "";
+            ruleMoodlesAllowedAfterUtc = null;
+            lastApplyUtc = DateTime.MinValue;
+        }
+
+        private void ClearAppearanceApplyFingerprint()
+        {
+            _lastAppliedAppearanceFingerprintKey = null;
+            _lastAppliedSfwModeForFingerprint = false;
+        }
+
+        private bool TrySkipAppearanceApplyBecauseUnchanged(
+            IPlayerCharacter? localPlayer,
+            IReadOnlyList<HeelsRule>? appliedRules,
+            out string status)
+        {
+            status = "";
+            if (!DrawObjectAppearanceBaseline.CanReadDrawObject(localPlayer))
+                return false;
+
+            if (Configuration.SfwModeActive != _lastAppliedSfwModeForFingerprint
+                && _lastAppliedAppearanceFingerprintKey != null)
+                return false;
+
+            if (_lastAppliedAppearanceFingerprintKey != null)
+            {
+                var currentFingerprint = DrawObjectAppearanceBaseline.ComputeFingerprint(localPlayer);
+                if (string.Equals(currentFingerprint, _lastAppliedAppearanceFingerprintKey, StringComparison.Ordinal))
+                {
+                    status = Localization.AppearanceApplySkippedUnchanged;
+                    return true;
+                }
+            }
+
+            if (appliedRules is { Count: > 0 }
+                && AreAllMatchedAppearanceActionsSatisfied(appliedRules, localPlayer))
+            {
+                status = Localization.AppearanceApplySkippedTargetMet;
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>命中规则的全部 Glamourer/Penumbra 行动是否已在 DrawObject / Penumbra 状态上达标。</summary>
+        private bool AreAllMatchedAppearanceActionsSatisfied(
+            IReadOnlyList<HeelsRule> appliedRules,
+            IPlayerCharacter? localPlayer)
+        {
+            if (!DrawObjectAppearanceBaseline.CanReadDrawObject(localPlayer))
+                return false;
+
+            var playerIndex = GetLocalPlayerObjectIndex();
+            if (playerIndex == null)
+                return false;
+
+            var hasAppearanceAction = false;
+            foreach (var rule in appliedRules)
+            {
+                foreach (var action in EnumerateRuleActionsForApply(rule))
+                {
+                    if (ActionUsesGlamourer(action))
+                    {
+                        hasAppearanceAction = true;
+                        if (!isGlamourerAvailable)
+                            return false;
+
+                        if (DrawObjectAppearanceBaseline.DoesDesignMatchRenderedAppearance(
+                                action.GlamourerDesign,
+                                localPlayer,
+                                _glamourerInterop) != true)
+                            return false;
+                    }
+                    else if (ActionUsesPenumbra(action))
+                    {
+                        hasAppearanceAction = true;
+                        if (!isPenumbraIpcReady || !IsPenumbraActionTargetAlreadyMet(action, playerIndex.Value))
+                            return false;
+                    }
+                    else if (action.Type is ActionType.Honorific or ActionType.Moodles or ActionType.SoundMixer)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return hasAppearanceAction;
+        }
+
+        private bool IsPenumbraActionTargetAlreadyMet(HeelsRuleAction action, int playerIndex)
+        {
+            if (action.PenumbraActionKind == PenumbraActionKind.EnableMod
+                || action.PenumbraActionKind == PenumbraActionKind.DisableMod)
+            {
+                var targetEnabled = action.PenumbraActionKind == PenumbraActionKind.EnableMod;
+                var current = ComparePenumbraModEnabled(action.PenumbraCollection, action.PenumbraModName ?? "");
+                return current == targetEnabled;
+            }
+
+            return ComparePenumbraOptionActionState(action, playerIndex) == true;
+        }
+
+        private void RecordAppearanceApplyFingerprint(IPlayerCharacter? localPlayer)
+        {
+            _lastAppliedAppearanceFingerprintKey = DrawObjectAppearanceBaseline.ComputeFingerprint(localPlayer);
+            _lastAppliedSfwModeForFingerprint = Configuration.SfwModeActive;
+        }
+
+        private void ApplyNonAppearanceRuleActions(
+            IReadOnlyList<HeelsRuleAction> ruleActions,
+            IPlayerCharacter localPlayer,
+            ref bool appliedAnything)
+        {
+            foreach (var action in ruleActions)
+            {
+                switch (action.Type)
+                {
+                    case ActionType.Honorific:
+                        if (!isHonorificIpcReady)
+                            break;
+
+                        if (!string.IsNullOrWhiteSpace(action.HonorificTitleJson)
+                            && action.HonorificTitleJson != lastAppliedHonorificJson)
+                        {
+                            if (_honorificInterop.TrySetLocalTitle(localPlayer, action.HonorificTitleJson, out var honorificError))
+                            {
+                                lastAppliedHonorificJson = action.HonorificTitleJson;
+                                appliedAnything = true;
+                                lastError = "";
+                                RecordAppliedActionSummary("Honorific");
+                            }
+                            else
+                            {
+                                lastError = honorificError;
+                                PluginLog.Warning($"Honorific IPC apply failed: {honorificError}");
+                            }
+                        }
+                        break;
+                    case ActionType.Moodles:
+                        if (!isMoodlesIpcReady || !IsRuleMoodleApplyAllowed())
+                            break;
+
+                        if (!string.IsNullOrWhiteSpace(action.MoodleGuid)
+                            && Guid.TryParse(action.MoodleGuid, out var moodleId) && moodleId != Guid.Empty)
+                        {
+                            var moodleKey = BuildRuleMoodleApplyKey(action);
+                            if (!lastAppliedActionKeys.Contains(moodleKey))
+                            {
+                                if (_moodlesInterop.TryApply(localPlayer, moodleId, action.MoodleIsPreset, out var moodlesError))
+                                {
+                                    lastAppliedActionKeys.Add(moodleKey);
+                                    lastAppliedMoodleKey = moodleKey[2..];
+                                    appliedAnything = true;
+                                    lastError = "";
+                                    RecordAppliedActionSummary("Moodles");
+                                }
+                                else
+                                {
+                                    lastError = moodlesError;
+                                    PluginLog.Warning($"Moodles IPC apply failed: {moodlesError}");
+                                }
+                            }
+                        }
+                        break;
+                    case ActionType.SoundMixer:
+                        if (isSoundMixerIpcReady)
+                            ApplySoundMixerAction(action, ref appliedAnything);
+                        break;
+                }
+            }
+        }
+
+        private void RecordNonAppearanceApplyFromSkip(
+            IReadOnlyList<HeelsRule> appliedRules,
+            IPlayerCharacter localPlayer)
+        {
+            var ruleActions = new List<HeelsRuleAction>();
+            foreach (var appliedRule in appliedRules)
+                ruleActions.AddRange(EnumerateRuleActionsForApply(appliedRule));
+
+            appliedActionSummariesThisCycle.Clear();
+            var appliedAnything = false;
+            ApplyNonAppearanceRuleActions(ruleActions, localPlayer, ref appliedAnything);
+            if (!appliedAnything)
+                return;
+
+            lastApplyUtc = DateTime.UtcNow;
+            var samePrimaryDisplay =
+                lastExecutedActionUtc.HasValue
+                && lastExecutedActionSummaries.Count == appliedActionSummariesThisCycle.Count
+                && lastExecutedActionSummaries.SequenceEqual(appliedActionSummariesThisCycle);
+            if (!samePrimaryDisplay)
+            {
+                lastExecutedActionUtc = DateTime.UtcNow;
+                lastExecutedActionSummaries.Clear();
+                lastExecutedActionSummaries.AddRange(appliedActionSummariesThisCycle);
+            }
+        }
+
         /// <summary>
         /// 计算本帧命中并将被应用的规则索引集合（按列表顺序）。
         /// 规则间连接符：Or（默认）= 互斥（同一 OR 块 first-match-wins）；And = 共存（开新独立块继续匹配并叠加）。
         /// 旧配置全为 Or → 等价于原有 first-match-then-break 行为。
         /// </summary>
-        private void CollectAppliedRuleIndices(List<HeelsRule> rules, float height, List<int> result)
+        private void CollectAppliedRuleIndices(
+            List<HeelsRule> rules,
+            float height,
+            List<int> result,
+            bool allowEquipmentEvaluation = true)
         {
             result.Clear();
             var blockMatched = false;
@@ -2080,7 +2320,7 @@ namespace HeelsDesignLinker
                 if (blockMatched)
                     continue; // 同一 OR 块内已命中 → 互斥跳过
 
-                if (TryMatchRule(rules[i], i, height, allowEquipmentEvaluation: true))
+                if (TryMatchRule(rules[i], i, height, allowEquipmentEvaluation))
                 {
                     result.Add(i);
                     blockMatched = true;
@@ -2275,6 +2515,7 @@ namespace HeelsDesignLinker
             loginSinceUtc = DateTime.UtcNow;
             isLoginProtectionActive = true;
             ResetApplyState();
+            _wasAppearanceTransformActive = false;
             RestoreShutdownApplySnapshot();
         }
 
@@ -2360,6 +2601,7 @@ namespace HeelsDesignLinker
             loginSinceUtc = null;
             isLoginProtectionActive = false;
             ResetApplyState();
+            _wasAppearanceTransformActive = false;
             ResetPenumbraStatusDisplay();
             soundMixerIpcLastReadyUtc = null;
             soundMixerLoadedLastTrueUtc = null;
@@ -2393,6 +2635,7 @@ namespace HeelsDesignLinker
             lastTempOffsetSeenUtc = null;
             lastKnownActualHeelsHeight = 0f;
             _appearanceChangeTracker.Reset();
+            ClearAppearanceApplyFingerprint();
         }
 
         private void ClearPenumbraApplyTracking()
@@ -2605,11 +2848,6 @@ namespace HeelsDesignLinker
                 else
                 {
                     ClearSoundMixerTemporaryOverrides();
-                    ClearPenumbraApplyTracking();
-                    lastAppliedHonorificJson = "";
-                    lastAppliedMoodleKey = "";
-                    ruleMoodlesAllowedAfterUtc = null;
-                    lastApplyUtc = DateTime.MinValue;
                 }
             }
 
@@ -2934,12 +3172,35 @@ namespace HeelsDesignLinker
                 RefreshDependencies(force: true);
             }
 
+            var localPlayerForGate = ObjectTable?.LocalPlayer;
+            var appearanceTransformActive = DrawObjectAppearanceGuard.IsAppearanceTransformActive(
+                localPlayerForGate,
+                out var transformGateStatus);
+
+            if (appearanceTransformActive && !_wasAppearanceTransformActive)
+            {
+                _appearanceChangeTracker.Reset();
+                ClearAppearanceApplyFingerprint();
+            }
+
+            if (!appearanceTransformActive && _wasAppearanceTransformActive)
+            {
+                stableTrackingRuleIndex = -1;
+                stableTrackingSignature = null;
+                ruleMatchStableSinceUtc = null;
+            }
+
+            _wasAppearanceTransformActive = appearanceTransformActive;
+
             var appearanceChanged = _appearanceChangeTracker.CheckChanged(
-                ObjectTable?.LocalPlayer,
+                localPlayerForGate,
                 out var appearanceModelIdsChanged);
 
             if (appearanceModelIdsChanged && IsLoginProtectionActive())
                 ResetAppearanceReadyTracking();
+
+            if (appearanceModelIdsChanged && !appearanceTransformActive)
+                ClearRuleMoodleApplyDedupKeys();
 
             var useSimpleHeels = Configuration.RuleSets.Count > 0
                 && Configuration.ActiveRuleSetIndex >= 0
@@ -2961,7 +3222,7 @@ namespace HeelsDesignLinker
             if (matchingHeightChanged)
                 lastRuleMatchingHeight = currentHeelsHeight;
 
-            if (matchingHeightChanged || appearanceChanged)
+            if (matchingHeightChanged || (appearanceChanged && !appearanceTransformActive))
             {
                 stableTrackingRuleIndex = -1;
                 stableTrackingSignature = null;
@@ -2978,7 +3239,12 @@ namespace HeelsDesignLinker
                 return;
 
             var activeRules = ActiveRules;
-            CollectAppliedRuleIndices(activeRules, currentHeelsHeight, currentAppliedRuleIndices);
+            var allowEquipmentEvaluation = !appearanceTransformActive;
+            CollectAppliedRuleIndices(
+                activeRules,
+                currentHeelsHeight,
+                currentAppliedRuleIndices,
+                allowEquipmentEvaluation);
             currentMatchedRuleIndex = currentAppliedRuleIndices.Count > 0 ? currentAppliedRuleIndices[0] : -1;
             HeelsRule? matchedRule = currentMatchedRuleIndex >= 0 ? activeRules[currentMatchedRuleIndex] : null;
             var matchedSignature = BuildMatchedSetSignature(currentAppliedRuleIndices);
@@ -2986,6 +3252,12 @@ namespace HeelsDesignLinker
             UpdateRuleMatchStability(matchedSignature, currentAppliedRuleIndices.Count > 0);
 
             var localPlayer = ObjectTable.LocalPlayer;
+
+            if (appearanceTransformActive)
+            {
+                applyGateStatus = transformGateStatus;
+                return;
+            }
 
             if (matchedRule == null)
             {
@@ -2995,13 +3267,27 @@ namespace HeelsDesignLinker
                     return;
                 }
 
-                OnMatchedRuleSetChanged(activeRules, currentAppliedRuleIndices, "", localPlayer);
-
                 if (localPlayer == null || !localPlayer.IsValid())
                     return;
 
                 if (TryConsumeRestoredShutdownMatchSkip(""))
                     return;
+
+                var noMatchSignatureChanged = lastMatchedSetSignature != "";
+                if (TrySkipAppearanceApplyBecauseUnchanged(localPlayer, null, out var noMatchSkipStatus))
+                {
+                    if (noMatchSignatureChanged)
+                        SyncMatchedRuleSetMetadata(activeRules, currentAppliedRuleIndices, "", localPlayer);
+                    applyGateStatus = noMatchSkipStatus;
+                    RecordAppearanceApplyFingerprint(localPlayer);
+                    return;
+                }
+
+                if (noMatchSignatureChanged)
+                {
+                    SyncMatchedRuleSetMetadata(activeRules, currentAppliedRuleIndices, "", localPlayer);
+                    PrepareMatchedRuleSetApply(hadMatch: true, hasMatch: false);
+                }
 
                 var noMatchAppliedAnything = false;
                 var noMatchConfigDirty = false;
@@ -3011,6 +3297,7 @@ namespace HeelsDesignLinker
                     SaveConfig();
                 if (noMatchAppliedAnything)
                     lastApplyUtc = DateTime.UtcNow;
+                RecordAppearanceApplyFingerprint(localPlayer);
                 return;
             }
 
@@ -3035,24 +3322,40 @@ namespace HeelsDesignLinker
             if (localPlayer == null || !localPlayer.IsValid())
                 return;
 
-            OnMatchedRuleSetChanged(activeRules, currentAppliedRuleIndices, matchedSignature, localPlayer);
+            var appliedRules = new List<HeelsRule>(currentAppliedRuleIndices.Count);
+            foreach (var appliedIndex in currentAppliedRuleIndices)
+                appliedRules.Add(activeRules[appliedIndex]);
+
+            var hadMatchedRuleSet = !string.IsNullOrEmpty(lastMatchedSetSignature);
+            var matchedSignatureChanged = matchedSignature != lastMatchedSetSignature;
 
             if (TryConsumeRestoredShutdownMatchSkip(matchedSignature))
                 return;
+
+            if (TrySkipAppearanceApplyBecauseUnchanged(localPlayer, appliedRules, out var matchSkipStatus))
+            {
+                if (matchedSignatureChanged)
+                    SyncMatchedRuleSetMetadata(activeRules, currentAppliedRuleIndices, matchedSignature, localPlayer);
+                RecordNonAppearanceApplyFromSkip(appliedRules, localPlayer);
+                applyGateStatus = matchSkipStatus;
+                RecordAppearanceApplyFingerprint(localPlayer);
+                return;
+            }
+
+            if (matchedSignatureChanged)
+            {
+                SyncMatchedRuleSetMetadata(activeRules, currentAppliedRuleIndices, matchedSignature, localPlayer);
+                PrepareMatchedRuleSetApply(hadMatchedRuleSet, hasMatch: true);
+            }
 
             var appliedAnything = false;
             var configDirty = false;
             appliedActionSummariesThisCycle.Clear();
             baselineMoodleAppliedThisCycle = false;
 
-            // 收集本周期全部命中规则（主规则 + AND 共存附加规则），按列表顺序（后覆盖前）。
-            var appliedRules = new List<HeelsRule>(currentAppliedRuleIndices.Count);
-            foreach (var appliedIndex in currentAppliedRuleIndices)
-                appliedRules.Add(activeRules[appliedIndex]);
-
             var ruleActions = new List<HeelsRuleAction>();
             foreach (var appliedRule in appliedRules)
-                ruleActions.AddRange(GetRuleActions(appliedRule));
+                ruleActions.AddRange(EnumerateRuleActionsForApply(appliedRule));
 
             // 应用基准行动（如果启用；已在上方门控，此处与规则同周期且必定先于规则行动）
             if (TryGetActiveRuleSet(out var activeRuleSet) && activeRuleSet.UseBaselineActions)
@@ -3074,67 +3377,7 @@ namespace HeelsDesignLinker
             // Glamourer：按优先级升序应用（数值大者最后写入，冲突槽位胜出；非冲突槽位共存）
             ApplyGlamourerActionsWithPriority(ruleActions, ref appliedAnything);
 
-            foreach (var action in ruleActions)
-            {
-                switch (action.Type)
-                {
-                    case ActionType.Glamourer:
-                        break; // 已由 ApplyGlamourerActionsWithPriority 统一按优先级处理
-                    case ActionType.Penumbra:
-                        break;
-                    case ActionType.Honorific:
-                        if (!isHonorificIpcReady)
-                            break;
-
-                        if (!string.IsNullOrWhiteSpace(action.HonorificTitleJson)
-                            && action.HonorificTitleJson != lastAppliedHonorificJson)
-                        {
-                            if (_honorificInterop.TrySetLocalTitle(localPlayer, action.HonorificTitleJson, out var honorificError))
-                            {
-                                lastAppliedHonorificJson = action.HonorificTitleJson;
-                                appliedAnything = true;
-                                lastError = "";
-                                RecordAppliedActionSummary("Honorific");
-                            }
-                            else
-                            {
-                                lastError = honorificError;
-                                PluginLog.Warning($"Honorific IPC apply failed: {honorificError}");
-                            }
-                        }
-                        break;
-                    case ActionType.Moodles:
-                        if (!isMoodlesIpcReady || !IsRuleMoodleApplyAllowed())
-                            break;
-
-                        if (!string.IsNullOrWhiteSpace(action.MoodleGuid)
-                            && Guid.TryParse(action.MoodleGuid, out var moodleId) && moodleId != Guid.Empty)
-                        {
-                            var moodleKey = BuildRuleMoodleApplyKey(action);
-                            if (!lastAppliedActionKeys.Contains(moodleKey))
-                            {
-                                if (_moodlesInterop.TryApply(localPlayer, moodleId, action.MoodleIsPreset, out var moodlesError))
-                                {
-                                    lastAppliedActionKeys.Add(moodleKey);
-                                    lastAppliedMoodleKey = moodleKey[2..];
-                                    appliedAnything = true;
-                                    lastError = "";
-                                    RecordAppliedActionSummary("Moodles");
-                                }
-                                else
-                                {
-                                    lastError = moodlesError;
-                                    PluginLog.Warning($"Moodles IPC apply failed: {moodlesError}");
-                                }
-                            }
-                        }
-                        break;
-                    case ActionType.SoundMixer:
-                        if (isSoundMixerIpcReady)
-                            ApplySoundMixerAction(action, ref appliedAnything);
-                        break;
-                }
-            }
+            ApplyNonAppearanceRuleActions(ruleActions, localPlayer, ref appliedAnything);
 
             ApplySfwModeIfActive(ref appliedAnything, ref configDirty);
 
@@ -3156,6 +3399,8 @@ namespace HeelsDesignLinker
                     lastExecutedActionSummaries.AddRange(appliedActionSummariesThisCycle);
                 }
             }
+
+            RecordAppearanceApplyFingerprint(localPlayer);
             }
             finally
             {
@@ -3668,14 +3913,33 @@ namespace HeelsDesignLinker
             Func<bool?> compareState,
             string description)
         {
+            if (ShouldSkipPenumbraApplyBecauseTargetMet(applyKey, compareState))
+                return true;
+
             if (lastAppliedActionKeys.Contains(applyKey) && IsPenumbraDedupTrusted(applyKey))
                 return true;
 
             return ShouldSkipPenumbraApplyDueToDedup(applyKey, compareState, description);
         }
 
+        private bool ShouldSkipPenumbraApplyBecauseTargetMet(string applyKey, Func<bool?> compareState)
+        {
+            if (compareState() != true)
+                return false;
+
+            if (!lastAppliedActionKeys.Contains(applyKey))
+                lastAppliedActionKeys.Add(applyKey);
+
+            penumbraDriftStreakByKey.Remove(applyKey);
+            MarkPenumbraDedupTrusted(applyKey);
+            return true;
+        }
+
         private bool ShouldSkipPenumbraApplyDueToDedup(string applyKey, Func<bool?> compareState, string description)
         {
+            if (ShouldSkipPenumbraApplyBecauseTargetMet(applyKey, compareState))
+                return true;
+
             if (!lastAppliedActionKeys.Contains(applyKey))
                 return false;
 
@@ -3882,6 +4146,16 @@ namespace HeelsDesignLinker
             if (lastAppliedActionKeys.Contains(applyKey))
                 return;
 
+            var localPlayer = ObjectTable.LocalPlayer;
+            if (DrawObjectAppearanceBaseline.DoesDesignMatchRenderedAppearance(
+                    action.GlamourerDesign,
+                    localPlayer,
+                    _glamourerInterop) == true)
+            {
+                lastAppliedActionKeys.Add(applyKey);
+                return;
+            }
+
             try
             {
                 var designArg = FormatGlamourerDesignArgument(action.GlamourerDesign);
@@ -4041,10 +4315,8 @@ namespace HeelsDesignLinker
 
         private void ApplyGlamourerActionsForRule(HeelsRule rule, ref bool appliedAnything)
         {
-            foreach (var action in GetRuleActions(rule))
-            {
+            foreach (var action in EnumerateRuleActionsForApply(rule))
                 ApplyGlamourerAction(action, ref appliedAnything);
-            }
         }
 
         private bool ApplyPenumbraActionsForRule(HeelsRule rule, ref bool appliedAnything) =>
@@ -4057,7 +4329,15 @@ namespace HeelsDesignLinker
         {
             var penumbraActions = new List<HeelsRuleAction>();
             foreach (var rule in rules)
-                penumbraActions.AddRange(FlattenRulePenumbraActions(rule).Where(ActionUsesPenumbra));
+            {
+                foreach (var groupAction in GetRuleActions(rule).Where(a => a.Type == ActionType.Penumbra))
+                {
+                    if (!IsActionActiveInSfwMode(groupAction))
+                        continue;
+
+                    penumbraActions.AddRange(FlattenPenumbraGroupAction(groupAction).Where(ActionUsesPenumbra));
+                }
+            }
 
             if (Configuration.SfwModeActive)
             {
@@ -4644,22 +4924,35 @@ namespace HeelsDesignLinker
         }
 
         /// <summary>当前规则/行动中仍被引用的基准参数键集合。</summary>
-        private HashSet<string> GetActiveBaselineParameterKeys(RuleSet ruleSet) =>
+        private HashSet<string> GetScannedBaselineParameterKeys(RuleSet ruleSet) =>
             ScanRuleSetParameters(ruleSet)
                 .Select(p => p.GetKey())
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>仍被规则/行动引用的基准配置（已删除的参数配置保留但不返回）。</summary>
-        private List<BaselineActionConfig> GetActiveBaselineConfigs(RuleSet ruleSet)
+        /// <summary>应显示并参与应用的基准参数键（规则扫描 + 手动添加）。</summary>
+        private HashSet<string> GetBaselineParameterKeysInUse(RuleSet ruleSet)
         {
-            var activeKeys = GetActiveBaselineParameterKeys(ruleSet);
+            var keys = GetScannedBaselineParameterKeys(ruleSet);
+            foreach (var config in ruleSet.BaselineConfigs)
+            {
+                if (config.IsManuallyAdded)
+                    keys.Add(config.ParameterId.GetKey());
+            }
+
+            return keys;
+        }
+
+        /// <summary>规则扫描引用或手动添加的基准配置（仅从规则移除的自动项会隐藏；手动项保留）。</summary>
+        private List<BaselineActionConfig> GetVisibleBaselineConfigs(RuleSet ruleSet)
+        {
+            var keysInUse = GetBaselineParameterKeysInUse(ruleSet);
             return ruleSet.BaselineConfigs
-                .Where(c => activeKeys.Contains(c.ParameterId.GetKey()))
+                .Where(c => keysInUse.Contains(c.ParameterId.GetKey()))
                 .ToList();
         }
 
         /// <summary>
-        /// 更新规则集的基准配置（检测新参数）
+        /// 更新规则集的基准配置（检测新参数；不删除手动添加项，也不移除已无引用的自动项配置）。
         /// </summary>
         private int UpdateBaselineConfigs(RuleSet ruleSet)
         {
@@ -4667,7 +4960,7 @@ namespace HeelsDesignLinker
             var existingKeys = ruleSet.BaselineConfigs.Select(c => c.ParameterId.GetKey()).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var newCount = 0;
             
-            // 添加新检测到的参数
+            // 仅追加扫描到的新参数；已有项（含手动添加）保持不变
             foreach (var param in currentParams)
             {
                 var key = param.GetKey();
@@ -4690,9 +4983,99 @@ namespace HeelsDesignLinker
                 }
             }
             
-            // 不再引用的参数保留在 BaselineConfigs 中，仅从 UI 隐藏且不执行
-            
             return newCount;
+        }
+
+        private void ResetManualBaselineAddDraft()
+        {
+            _manualBaselineAddType = ActionType.Glamourer;
+            _manualBaselineAddDraft.Type = ActionType.Glamourer;
+            _manualBaselineAddDraft.GlamourerDesign = "";
+            _manualBaselineAddDraft.MoodleGuid = "";
+            _manualBaselineAddDraft.MoodleIsPreset = false;
+            _manualBaselineAddDraft.HonorificTitleJson = "";
+            _manualBaselineAddPenumbraGroup.PenumbraCollection = "Default";
+            _manualBaselineAddPenumbraGroup.PenumbraModName = "";
+            _manualBaselineAddPenumbraGroup.SubActions.Clear();
+        }
+
+        private BaselineParameterId? TryBuildManualBaselineParameter()
+        {
+            switch (_manualBaselineAddType)
+            {
+                case ActionType.Penumbra:
+                    if (string.IsNullOrWhiteSpace(_manualBaselineAddPenumbraGroup.PenumbraModName))
+                        return null;
+                    return new BaselineParameterId
+                    {
+                        Type = ActionType.Penumbra,
+                        PenumbraCollection = _manualBaselineAddPenumbraGroup.PenumbraCollection,
+                        PenumbraModName = _manualBaselineAddPenumbraGroup.PenumbraModName,
+                    };
+                case ActionType.Glamourer:
+                    if (string.IsNullOrWhiteSpace(_manualBaselineAddDraft.GlamourerDesign))
+                        return null;
+                    return new BaselineParameterId
+                    {
+                        Type = ActionType.Glamourer,
+                        GlamourerDesign = _manualBaselineAddDraft.GlamourerDesign,
+                    };
+                case ActionType.Moodles:
+                    if (string.IsNullOrWhiteSpace(_manualBaselineAddDraft.MoodleGuid))
+                        return null;
+                    return new BaselineParameterId
+                    {
+                        Type = ActionType.Moodles,
+                        MoodleGuid = _manualBaselineAddDraft.MoodleGuid,
+                    };
+                case ActionType.Honorific:
+                    if (string.IsNullOrWhiteSpace(_manualBaselineAddDraft.HonorificTitleJson))
+                        return null;
+                    return new BaselineParameterId
+                    {
+                        Type = ActionType.Honorific,
+                        HonorificTitleJson = _manualBaselineAddDraft.HonorificTitleJson,
+                    };
+                default:
+                    return null;
+            }
+        }
+
+        private bool TryAddManualBaselineConfig(RuleSet ruleSet, out string error)
+        {
+            var param = TryBuildManualBaselineParameter();
+            if (param == null)
+            {
+                error = Localization.BaselineManualAddIncomplete;
+                return false;
+            }
+
+            var key = param.GetKey();
+            if (ruleSet.BaselineConfigs.Any(c => c.ParameterId.GetKey().Equals(key, StringComparison.OrdinalIgnoreCase)))
+            {
+                error = Localization.BaselineManualAddDuplicate;
+                return false;
+            }
+
+            ruleSet.BaselineConfigs.Add(new BaselineActionConfig
+            {
+                ParameterId = param,
+                Mode = BaselineMode.Manual,
+                IsManuallyAdded = true,
+                ManualState = BaselineManualState.Disabled,
+            });
+            ruleSet.DismissedNewParameters.Remove(key);
+            error = "";
+            return true;
+        }
+
+        private void RemoveManualBaselineConfig(RuleSet ruleSet, BaselineActionConfig config)
+        {
+            var key = config.ParameterId.GetKey();
+            ruleSet.BaselineConfigs.Remove(config);
+            ruleSet.DismissedNewParameters.Remove(key);
+            InvalidateApplyStateForBaselineChange();
+            SaveConfig();
         }
 
         /// <summary>迁移旧版基准模式（Disabled/Enabled/Ignore）到 Auto/Manual/Ignore</summary>
@@ -4928,6 +5311,7 @@ namespace HeelsDesignLinker
                     Type = ActionType.Penumbra,
                     PenumbraGroup = ClonePenumbraActionGroup(source.PenumbraGroup),
                     IsActionCollapsed = source.IsActionCollapsed,
+                    SfwModeEnabled = source.SfwModeEnabled,
                 };
             }
 
@@ -4947,6 +5331,7 @@ namespace HeelsDesignLinker
                     source.PenumbraMultiToggleStates,
                     StringComparer.OrdinalIgnoreCase),
                 IsActionCollapsed = source.IsActionCollapsed,
+                SfwModeEnabled = source.SfwModeEnabled,
             };
         }
 
@@ -5311,10 +5696,10 @@ namespace HeelsDesignLinker
             if (primaryRule == null)
                 return;
             
-            var activeKeys = GetActiveBaselineParameterKeys(ruleSet);
+            var keysInUse = GetBaselineParameterKeysInUse(ruleSet);
             foreach (var config in ruleSet.BaselineConfigs)
             {
-                if (!activeKeys.Contains(config.ParameterId.GetKey()))
+                if (!keysInUse.Contains(config.ParameterId.GetKey()))
                     continue;
 
                 if (config.Mode == BaselineMode.Ignore)
@@ -6475,6 +6860,21 @@ namespace HeelsDesignLinker
                 new Vector4(0.6f, 0.8f, 1.0f, 1.0f),
                 Localization.PenumbraActionGroupTitle(group.PenumbraCollection, modLabel));
 
+            if (syncCollapseAction != null && groupReorderRuleIndex.HasValue && groupReorderIndex.HasValue)
+            {
+                ImGui.SameLine();
+                ImGui.AlignTextToFramePadding();
+                var penSfwBadgeColor = syncCollapseAction.SfwModeEnabled
+                    ? new Vector4(0.55f, 0.85f, 0.55f, 1.0f)
+                    : new Vector4(0.75f, 0.75f, 0.75f, 1.0f);
+                ImGui.TextColored(penSfwBadgeColor, Localization.ActionSfwModeStatusBadge(syncCollapseAction.SfwModeEnabled));
+                ImGui.SameLine();
+                DrawActionSfwModeParticipationControl(
+                    groupReorderRuleIndex.Value,
+                    groupReorderIndex.Value,
+                    syncCollapseAction);
+            }
+
             if (canDeleteGroup)
             {
                 ImGui.SameLine();
@@ -6613,17 +7013,26 @@ namespace HeelsDesignLinker
             
             ImGui.Spacing();
             
-            // 按钮：刷新扫描、忽略所有新参数
+            // 按钮：刷新扫描、手动添加、忽略所有新参数
             if (ImGui.Button(Localization.BaselineRefresh))
             {
                 UpdateBaselineConfigs(ruleSet);
                 SaveConfig();
             }
             ImGuiComponents.HelpMarker(Localization.BaselineRefreshTooltip);
+
+            ImGui.SameLine();
+            if (ImGui.Button(Localization.BaselineManualAdd))
+            {
+                ResetManualBaselineAddDraft();
+                ImGui.OpenPopup("ManualBaselineAdd");
+            }
+            ImGuiComponents.HelpMarker(Localization.BaselineManualAddTooltip);
+            DrawManualBaselineAddPopup(ruleSet);
             
             ImGui.SameLine();
             
-            var activeBaselineConfigs = GetActiveBaselineConfigs(ruleSet);
+            var activeBaselineConfigs = GetVisibleBaselineConfigs(ruleSet);
             var hasNewParams = activeBaselineConfigs.Any(c => c.IsNew);
             if (hasNewParams)
             {
@@ -6721,9 +7130,143 @@ namespace HeelsDesignLinker
                 }
             }
             
+            DrawManualBaselineDeleteConfirmation(ruleSet);
             ImGui.Unindent();
         }
+
+        private void DrawManualBaselineDeleteConfirmation(RuleSet ruleSet)
+        {
+            if (string.IsNullOrEmpty(_manualBaselineDeleteConfirmKey))
+                return;
+
+            var popupOpen = true;
+            if (!ImGui.BeginPopupModal("ConfirmDeleteManualBaseline", ref popupOpen, ImGuiWindowFlags.AlwaysAutoResize))
+                return;
+
+            ImGui.TextWrapped(Localization.BaselineManualDeleteConfirm);
+            ImGui.Spacing();
+
+            if (ImGui.Button(Localization.Confirm))
+            {
+                var config = ruleSet.BaselineConfigs.FirstOrDefault(c =>
+                    c.IsManuallyAdded
+                    && c.ParameterId.GetKey().Equals(_manualBaselineDeleteConfirmKey, StringComparison.OrdinalIgnoreCase));
+                if (config != null)
+                    RemoveManualBaselineConfig(ruleSet, config);
+                _manualBaselineDeleteConfirmKey = null;
+                ImGui.CloseCurrentPopup();
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button(Localization.Cancel))
+            {
+                _manualBaselineDeleteConfirmKey = null;
+                ImGui.CloseCurrentPopup();
+            }
+
+            ImGui.EndPopup();
+        }
         
+        private void DrawManualBaselineAddPopup(RuleSet ruleSet)
+        {
+            var popupOpen = true;
+            if (!ImGui.BeginPopupModal("ManualBaselineAdd", ref popupOpen, ImGuiWindowFlags.AlwaysAutoResize))
+                return;
+
+            ImGui.TextWrapped(Localization.BaselineManualAddDescription);
+            ImGui.Spacing();
+
+            var typeIndex = _manualBaselineAddType switch
+            {
+                ActionType.Glamourer => 0,
+                ActionType.Penumbra => 1,
+                ActionType.Moodles => 2,
+                ActionType.Honorific => 3,
+                _ => 0,
+            };
+            var typeLabels = new[]
+            {
+                Localization.ActionTypeLabel(ActionType.Glamourer),
+                Localization.ActionTypeLabel(ActionType.Penumbra),
+                Localization.ActionTypeLabel(ActionType.Moodles),
+                Localization.ActionTypeLabel(ActionType.Honorific),
+            };
+            ImGui.SetNextItemWidth(220);
+            if (ImGui.Combo(Localization.BaselineManualAddTypeLabel, ref typeIndex, typeLabels, typeLabels.Length))
+            {
+                var newType = typeIndex switch
+                {
+                    0 => ActionType.Glamourer,
+                    1 => ActionType.Penumbra,
+                    2 => ActionType.Moodles,
+                    3 => ActionType.Honorific,
+                    _ => ActionType.Glamourer,
+                };
+                if (newType != _manualBaselineAddType)
+                {
+                    _manualBaselineAddType = newType;
+                    _manualBaselineAddDraft.Type = newType;
+                }
+            }
+
+            ImGui.Spacing();
+            ImGui.Separator();
+            ImGui.Spacing();
+
+            const string idSuffix = "ManualBaselineAdd";
+            switch (_manualBaselineAddType)
+            {
+                case ActionType.Penumbra:
+                    if (Configuration.UsePenumbraTemporaryApply)
+                    {
+                        ImGui.TextColored(RuleUnreachableWarningColor, Localization.BaselinePenumbraDisabledInTemporaryMode);
+                        break;
+                    }
+
+                    DrawPenumbraCollectionSelector(idSuffix, _manualBaselineAddPenumbraGroup, null);
+                    DrawPenumbraModSelector(idSuffix, _manualBaselineAddPenumbraGroup, null);
+                    break;
+                case ActionType.Glamourer:
+                    DrawGlamourerDesignSelector(-1, -1, _manualBaselineAddDraft);
+                    break;
+                case ActionType.Moodles:
+                    DrawMoodlesActionEditor(-1, -1, _manualBaselineAddDraft, idSuffix);
+                    break;
+                case ActionType.Honorific:
+                    DrawHonorificActionEditor(-1, -1, _manualBaselineAddDraft, idSuffix);
+                    break;
+            }
+
+            ImGui.Spacing();
+            var canAdd = TryBuildManualBaselineParameter() != null
+                && (_manualBaselineAddType != ActionType.Penumbra || !Configuration.UsePenumbraTemporaryApply);
+            if (!canAdd)
+                ImGui.BeginDisabled();
+            if (ImGui.Button(Localization.Confirm))
+            {
+                if (TryAddManualBaselineConfig(ruleSet, out var addError))
+                {
+                    InvalidateApplyStateForBaselineChange();
+                    SaveConfig();
+                    ImGui.CloseCurrentPopup();
+                }
+                else if (!string.IsNullOrEmpty(addError))
+                {
+                    PluginLog.Warning(addError);
+                }
+            }
+            if (!canAdd)
+                ImGui.EndDisabled();
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                ImGui.SetTooltip(Localization.BaselineManualAddIncomplete);
+
+            ImGui.SameLine();
+            if (ImGui.Button(Localization.Cancel))
+                ImGui.CloseCurrentPopup();
+
+            ImGui.EndPopup();
+        }
+
         private void DrawBaselineParameter(BaselineActionConfig config, RuleSet ruleSet)
         {
             var param = config.ParameterId;
@@ -6740,8 +7283,25 @@ namespace HeelsDesignLinker
                 ImGui.Text(displayName);
             if (config.IsNew)
                 ImGui.PopStyleColor();
+            if (config.IsManuallyAdded)
+            {
+                ImGui.SameLine();
+                ImGui.TextColored(new Vector4(0.6f, 0.85f, 1.0f, 1.0f), Localization.BaselineManualBadge);
+            }
             if (!string.IsNullOrEmpty(fullInfo))
                 ImGuiComponents.HelpMarker(fullInfo);
+
+            if (config.IsManuallyAdded)
+            {
+                ImGui.SameLine();
+                if (ImGui.SmallButton($"{Localization.BaselineManualDelete}##DelManualBaseline{paramKey}"))
+                {
+                    _manualBaselineDeleteConfirmKey = paramKey;
+                    ImGui.OpenPopup("ConfirmDeleteManualBaseline");
+                }
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip(Localization.BaselineManualDeleteTooltip);
+            }
             
             ImGui.AlignTextToFramePadding();
             ImGui.Text(Localization.BaselineMode + ":");
@@ -8044,6 +8604,21 @@ namespace HeelsDesignLinker
 
             if (ImGui.IsItemHovered())
                 ImGui.SetTooltip(Localization.RuleSfwModeEnabledTooltip);
+        }
+
+        /// <summary>行动在 SFW 模式下是否参与应用（显示在行动详情区顶部）。</summary>
+        private void DrawActionSfwModeParticipationControl(int ruleIndex, int actionIndex, HeelsRuleAction action)
+        {
+            var enabled = action.SfwModeEnabled;
+            if (ImGui.Checkbox($"{Localization.ActionSfwModeEnabledLabel}##SfwAction{ruleIndex}_{actionIndex}", ref enabled))
+            {
+                action.SfwModeEnabled = enabled;
+                lastApplyUtc = DateTime.MinValue;
+                SaveConfig();
+            }
+
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(Localization.ActionSfwModeEnabledTooltip);
         }
 
         /// <summary>绘制条件组标题栏（包含组内操作符选择器和删除按钮）</summary>
@@ -9483,6 +10058,15 @@ namespace HeelsDesignLinker
                 ImGui.TextColored(GlamourerSlotConflictResolvedColor, Localization.RuleActionLabel(actionIndex + 1));
             else
                 ImGui.TextDisabled(Localization.RuleActionLabel(actionIndex + 1));
+
+            ImGui.SameLine();
+            ImGui.AlignTextToFramePadding();
+            var actionSfwBadgeColor = action.SfwModeEnabled
+                ? new Vector4(0.55f, 0.85f, 0.55f, 1.0f)
+                : new Vector4(0.75f, 0.75f, 0.75f, 1.0f);
+            ImGui.TextColored(actionSfwBadgeColor, Localization.ActionSfwModeStatusBadge(action.SfwModeEnabled));
+            ImGui.SameLine();
+            DrawActionSfwModeParticipationControl(ruleIndex, actionIndex, action);
 
             if (hasGlamourerTakeover && ImGui.IsItemHovered())
                 ImGui.SetTooltip(Localization.PenumbraModGlamourerTakeoverWarning);
@@ -10999,6 +11583,19 @@ namespace HeelsDesignLinker
         
         private void DrawDrawObjectEquipmentStatus()
         {
+            var localPlayer = ObjectTable.LocalPlayer;
+            var appearanceState = DrawObjectAppearanceGuard.Inspect(localPlayer);
+            ImGui.TextDisabled($"{Localization.DebugAppearanceTransformId}: {appearanceState.TransformationId}");
+            var fingerprint = DrawObjectAppearanceBaseline.ComputeFingerprint(localPlayer);
+            var fingerprintPreview = fingerprint.Length <= 96 ? fingerprint : $"{fingerprint[..96]}…";
+            ImGui.TextDisabled($"{Localization.DebugAppearanceFingerprint}: {fingerprintPreview}");
+
+            if (appearanceState.IsTransformActive)
+                ImGui.TextColored(RuleUnreachableWarningColor, appearanceState.BlockReason ?? "");
+            else
+                ImGui.TextColored(MatchedRuleStatusColor, Localization.DebugAppearanceTransformInactive);
+
+            ImGui.Spacing();
             ImGui.TextWrapped(Localization.DebugDrawObjectNote);
             ImGui.Spacing();
 
@@ -11214,11 +11811,36 @@ namespace HeelsDesignLinker
             }
         }
 
+        private bool IsDebugSectionExpanded(string key, bool defaultExpanded = false)
+        {
+            Configuration.DebugTabExpandedSections ??= new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            return Configuration.DebugTabExpandedSections.TryGetValue(key, out var expanded)
+                ? expanded
+                : defaultExpanded;
+        }
+
+        private void SetDebugSectionExpanded(string key, bool expanded)
+        {
+            Configuration.DebugTabExpandedSections ??= new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            Configuration.DebugTabExpandedSections[key] = expanded;
+            SaveConfig();
+        }
+
+        private bool DrawDebugCollapsingHeader(string key, string label, bool defaultExpanded = false)
+        {
+            var expanded = IsDebugSectionExpanded(key, defaultExpanded);
+            ImGui.SetNextItemOpen(expanded, ImGuiCond.Always);
+            var headerOpen = ImGui.CollapsingHeader(label);
+            if (ImGui.IsItemToggledOpen())
+                SetDebugSectionExpanded(key, !expanded);
+            return headerOpen;
+        }
+
         private void DrawSoundMixerIpcDiagnostics()
         {
             RefreshSoundMixerIpcGateProbesIfNeeded();
 
-            if (!ImGui.CollapsingHeader(Localization.SoundMixerIpcGatesHeader))
+            if (!DrawDebugCollapsingHeader("soundMixerIpcGates", Localization.SoundMixerIpcGatesHeader))
                 return;
 
             ImGui.Indent();
@@ -11257,7 +11879,7 @@ namespace HeelsDesignLinker
             }
             
             // IPC 测试
-            if (ImGui.CollapsingHeader(Localization.IpcTestHeader))
+            if (DrawDebugCollapsingHeader("ipcTest", Localization.IpcTestHeader))
             {
                 ImGui.Indent();
                 if (ImGui.Button(Localization.TestIPC))
@@ -11277,14 +11899,14 @@ namespace HeelsDesignLinker
                 if (!string.IsNullOrEmpty(lastIpcData))
                 {
                     ImGui.Spacing();
-                    if (ImGui.CollapsingHeader(Localization.RawIPCData))
+                    if (DrawDebugCollapsingHeader("rawIpcData", Localization.RawIPCData))
                         ImGui.TextWrapped(lastIpcData);
                 }
                 ImGui.Unindent();
             }
             
             // 配置文件位置信息
-            if (ImGui.CollapsingHeader(Localization.ConfigFileLocation))
+            if (DrawDebugCollapsingHeader("configFileLocation", Localization.ConfigFileLocation))
             {
                 ImGui.Indent();
                 
@@ -11349,7 +11971,7 @@ namespace HeelsDesignLinker
             }
             
             // 插件状态信息
-            if (ImGui.CollapsingHeader(Localization.PluginStatus, ImGuiTreeNodeFlags.DefaultOpen))
+            if (DrawDebugCollapsingHeader("pluginStatus", Localization.PluginStatus, defaultExpanded: true))
             {
                 ImGui.Indent();
                 
@@ -11378,7 +12000,7 @@ namespace HeelsDesignLinker
                             $"API Version: {_glamourerInterop.GlamourerApiVersion}");
                         
                         // 可用方法列表
-                        if (ImGui.CollapsingHeader("Available IPC Methods"))
+                        if (DrawDebugCollapsingHeader("glamourerIpcMethods", "Available IPC Methods"))
                         {
                             foreach (var method in _glamourerInterop.AvailableGetStateMethods)
                             {
@@ -11390,7 +12012,7 @@ namespace HeelsDesignLinker
                         }
                         
                         // 事件订阅状态
-                        if (ImGui.CollapsingHeader("Event Subscription Status"))
+                        if (DrawDebugCollapsingHeader("glamourerEventSubscription", "Event Subscription Status"))
                         {
                             foreach (var status in _glamourerInterop.EventSubscriptionStatus)
                             {
@@ -11449,7 +12071,7 @@ namespace HeelsDesignLinker
             }
             
             // 最后执行的行动信息
-            if (ImGui.CollapsingHeader(Localization.LastExecutedActions, ImGuiTreeNodeFlags.DefaultOpen))
+            if (DrawDebugCollapsingHeader("lastExecutedActions", Localization.LastExecutedActions, defaultExpanded: true))
             {
                 ImGui.Indent();
                 
@@ -11476,7 +12098,7 @@ namespace HeelsDesignLinker
             }
             
             // 诊断信息
-            if (ImGui.CollapsingHeader(Localization.DiagnosticInfo))
+            if (DrawDebugCollapsingHeader("diagnosticInfo", Localization.DiagnosticInfo))
             {
                 ImGui.Indent();
                 
@@ -11524,7 +12146,7 @@ namespace HeelsDesignLinker
             }
 #endif
 
-            if (ImGui.CollapsingHeader(Localization.DebugDrawObjectEquipmentStatus))
+            if (DrawDebugCollapsingHeader("drawObjectEquipment", Localization.DebugDrawObjectEquipmentStatus))
             {
                 ImGui.Indent();
                 DrawDrawObjectEquipmentStatus();
@@ -12010,6 +12632,7 @@ namespace HeelsDesignLinker
                     MoodleGuid = source.MoodleGuid ?? "",
                     MoodleIsPreset = source.MoodleIsPreset,
                     IsActionCollapsed = action.IsActionCollapsed,
+                    SfwModeEnabled = action.SfwModeEnabled,
                 };
                 cloned.Actions.Add(clonedAction);
             }
@@ -12098,6 +12721,7 @@ namespace HeelsDesignLinker
                     Type = ActionType.Glamourer,
                     GlamourerDesign = source.GlamourerDesign ?? "",
                     IsActionCollapsed = source.IsActionCollapsed,
+                    SfwModeEnabled = source.SfwModeEnabled,
                 };
             }
 
@@ -12115,6 +12739,7 @@ namespace HeelsDesignLinker
                     ? new Dictionary<string, bool>(source.PenumbraMultiToggleStates, StringComparer.OrdinalIgnoreCase)
                     : new(StringComparer.OrdinalIgnoreCase),
                 IsActionCollapsed = source.IsActionCollapsed,
+                SfwModeEnabled = source.SfwModeEnabled,
             };
         }
 

@@ -4,10 +4,112 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.7";
+        public const string CurrentVersion = "1.4.2.17";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.17",
+                "2026-06-10",
+                [
+                    "修复试穿清除后 Moodles 不重新 apply：外观 skip 时仍执行 Moodles/Honorific/SoundMixer；DrawObject 模型变化时清除 Moodles 去重",
+                ],
+                [
+                    "Fix Moodles not re-applying after try-on clear: run non-appearance actions on appearance skip; clear Moodles dedup on DrawObject model change",
+                ]),
+            new(
+                "1.4.2.16",
+                "2026-06-10",
+                [
+                    "修复跨规则试穿被覆盖：skip 先于 Penumbra 临时层清理；规则目标已在 DrawObject/Penumbra 达标时跳过整段 apply",
+                    "Penumbra 在 IPC 状态已匹配时不再因 dedup 清空而重复 batch apply",
+                ],
+                [
+                    "Fix cross-rule try-on overwrite: skip before Penumbra temp clear; skip when DrawObject/Penumbra targets met",
+                    "Penumbra skips batch apply when IPC state already matches after dedup reset",
+                ]),
+            new(
+                "1.4.2.15",
+                "2026-06-10",
+                [
+                    "外观 apply 改以 DrawObject 为基准：指纹跳过与 Glamourer apply 前比对渲染槽位，画面已一致则不再改写",
+                    "规则签名变化不再单独清空外观指纹",
+                ],
+                [
+                    "Appearance apply uses DrawObject baseline: fingerprint skip and pre-Glamourer slot compare",
+                    "Rule signature change no longer clears appearance fingerprint alone",
+                ]),
+            new(
+                "1.4.2.14",
+                "2026-06-10",
+                [
+                    "外观指纹移除 DrawObject 渲染槽，仅跟踪 Glamourer、背包装备与 DrawData 投影",
+                ],
+                [
+                    "Appearance fingerprint drops DrawObject render slots; tracks Glamourer, inventory, and DrawData projection only",
+                ]),
+            new(
+                "1.4.2.13",
+                "2026-06-10",
+                [
+                    "调试页各栏目展开/折叠状态持久化到配置",
+                ],
+                [
+                    "Persist debug tab section expand/collapse state in config",
+                ]),
+            new(
+                "1.4.2.12",
+                "2026-06-10",
+                [
+                    "新增外观指纹：装备渲染/背包/Glamourer 未变且规则命中未变时跳过 apply（含武具投影与任意槽位变化检测）",
+                    "移除 DrawObject 模型类型门控，保留 TransformationId 变身期间暂停 apply",
+                ],
+                [
+                    "Appearance fingerprint: skip apply when equip render/inventory/Glamourer unchanged and same rule match",
+                    "Remove DrawObject model-type gate; keep TransformationId transform pause",
+                ]),
+            new(
+                "1.4.2.11",
+                "2026-06-10",
+                [
+                    "变身/非 Human DrawObject 期间暂停 Glamourer/Penumbra/基准等外观 apply，避免打断变身效果",
+                    "变身期间跳过装备条件评估；变身结束后重新稳定匹配并 apply",
+                    "调试页显示 TransformationId 与 DrawObject 模型类型",
+                ],
+                [
+                    "Pause appearance apply during transforms / non-Human DrawObject",
+                    "Skip equipment evaluation while transformed; re-match after transform ends",
+                    "Debug panel shows TransformationId and DrawObject model type",
+                ]),
+            new(
+                "1.4.2.10",
+                "2026-06-10",
+                [
+                    "修复 Penumbra 行动组未显示 SFW 参与开关的问题；SFW 过滤按行动组父项生效",
+                    "Glamourer/Moodles 等行动的 SFW 开关移至标题行，折叠时也可操作",
+                ],
+                [
+                    "Fix missing SFW toggle on Penumbra action groups; SFW filter uses parent action",
+                    "Move SFW toggle to action header row for all non-Penumbra action types",
+                ]),
+            new(
+                "1.4.2.9",
+                "2026-06-10",
+                [
+                    "基准行动支持手动添加与删除；刷新扫描不会移除手动添加的基准项",
+                ],
+                [
+                    "Baseline actions: manual add/delete; refresh scan never removes manual entries",
+                ]),
+            new(
+                "1.4.2.8",
+                "2026-06-10",
+                [
+                    "行动新增「SFW 模式参与」开关（默认开启）；SFW 激活时关闭的行动不参与应用",
+                ],
+                [
+                    "Actions: per-action SFW participation toggle (default on); skipped for apply when SFW is active",
+                ]),
             new(
                 "1.4.2.7",
                 "2026-06-10",

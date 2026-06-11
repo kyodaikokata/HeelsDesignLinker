@@ -545,6 +545,8 @@ internal sealed class GlamourerInterop
         var subscriber = _pluginInterface.GetIpcSubscriber<Guid, object>(GetDesignJObjectGate);
         return ParseDesignJObject(subscriber.InvokeFunc(designId));
     }
+
+    internal JObject? GetDesignJObjectForComparison(Guid designId) => GetDesignJObject(designId);
     
     /// <summary>
     /// 获取本地玩家的 Glamourer 状态（尝试多种方法）

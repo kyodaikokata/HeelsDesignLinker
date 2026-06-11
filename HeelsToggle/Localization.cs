@@ -257,6 +257,13 @@ namespace HeelsDesignLinker
         public static string RuleSfwModeStatusBadge(bool enabled) => enabled
             ? (IsChine ? "[SFW:参与]" : "[SFW:on]")
             : (IsChine ? "[SFW:跳过]" : "[SFW:off]");
+        public static string ActionSfwModeEnabledLabel => IsChine ? "SFW 模式参与" : "Active in SFW mode";
+        public static string ActionSfwModeEnabledTooltip => IsChine
+            ? "关闭后，全局 SFW 模式激活时该行动不参与应用（非 SFW 模式下始终应用）。"
+            : "When off, this action is skipped for apply while global SFW mode is active (always applies when SFW is off).";
+        public static string ActionSfwModeStatusBadge(bool enabled) => enabled
+            ? (IsChine ? "[SFW:参与]" : "[SFW:on]")
+            : (IsChine ? "[SFW:跳过]" : "[SFW:off]");
         public static string ConnectToNextGroup => IsChine
             ? "选择如何连接到下一个条件组"
             : "Choose how to connect to the next condition group";
@@ -872,8 +879,30 @@ namespace HeelsDesignLinker
             : "Clear all yellow new parameter highlights";
         public static string BaselineRefresh => IsChine ? "刷新扫描" : "Refresh Scan";
         public static string BaselineRefreshTooltip => IsChine 
-            ? "重新扫描当前规则集中的所有参数" 
-            : "Re-scan all parameters in current rule set";
+            ? "扫描规则集中的行动，自动添加尚未配置的基准参数。手动添加的基准项不会被删除；仅从规则移除的自动项会隐藏。"
+            : "Scan rule actions and add missing baseline parameters. Manually added entries are never removed; auto entries from removed rules are only hidden.";
+        public static string BaselineManualAdd => IsChine ? "手动添加" : "Add Manually";
+        public static string BaselineManualAddTooltip => IsChine
+            ? "手动指定一个基准参数（无需在规则行动中引用）。"
+            : "Add a baseline parameter manually (no rule action reference required).";
+        public static string BaselineManualAddDescription => IsChine
+            ? "选择参数类型并指定目标，将作为手动基准项添加（默认手动模式、禁用状态）。"
+            : "Choose a parameter type and target to add as a manual baseline entry (defaults to Manual mode, disabled).";
+        public static string BaselineManualAddTypeLabel => IsChine ? "参数类型" : "Parameter type";
+        public static string BaselineManualAddIncomplete => IsChine
+            ? "请先完整选择要添加的基准参数。"
+            : "Select a complete baseline parameter first.";
+        public static string BaselineManualAddDuplicate => IsChine
+            ? "该基准参数已存在。"
+            : "This baseline parameter already exists.";
+        public static string BaselineManualBadge => IsChine ? "[手动]" : "[Manual]";
+        public static string BaselineManualDelete => IsChine ? "删除" : "Delete";
+        public static string BaselineManualDeleteTooltip => IsChine
+            ? "删除此手动添加的基准项。"
+            : "Remove this manually added baseline entry.";
+        public static string BaselineManualDeleteConfirm => IsChine
+            ? "确认删除此手动添加的基准项？"
+            : "Delete this manually added baseline entry?";
         public static string BaselinePenumbraMod => IsChine ? "Penumbra Mod" : "Penumbra Mod";
         public static string BaselineGlamourerDesign => IsChine ? "Glamourer 设计" : "Glamourer Design";
         public static string BaselineMoodle => IsChine ? "Moodles 状态" : "Moodles Status";
@@ -883,6 +912,18 @@ namespace HeelsDesignLinker
         public static string NotLoggedIn => IsChine ? "未登录" : "Not logged in";
         public static string WaitingForLocalPlayer => IsChine ? "等待本地角色对象" : "Waiting for local player object";
         public static string BetweenAreasLoading => IsChine ? "过图/加载中" : "Between areas / loading";
+        public static string AppearanceTransformActive(short transformationId) => IsChine
+            ? $"变身中（TransformationId={transformationId}），暂停外观 apply"
+            : $"Transformed (TransformationId={transformationId}); appearance apply paused";
+        public static string AppearanceApplySkippedUnchanged => IsChine
+            ? "DrawObject 渲染外观未变化，跳过 apply"
+            : "DrawObject rendered appearance unchanged; apply skipped";
+        public static string AppearanceApplySkippedTargetMet => IsChine
+            ? "DrawObject 已符合规则目标，跳过 apply"
+            : "DrawObject already matches rule targets; apply skipped";
+        public static string DebugAppearanceTransformId => IsChine ? "TransformationId" : "TransformationId";
+        public static string DebugAppearanceFingerprint => IsChine ? "外观指纹" : "Appearance fingerprint";
+        public static string DebugAppearanceTransformInactive => IsChine ? "未变身" : "Not transformed";
         public static string WaitingForMainHandEquipmentData => IsChine ? "等待主手装备数据" : "Waiting for main-hand equipment data";
         public static string WaitingForMainHandEquipment => IsChine ? "等待主手装备加载" : "Waiting for main-hand equipment";
         public static string MainHandAnchorStabilizing(double seconds) => IsChine
