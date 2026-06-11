@@ -832,9 +832,6 @@ namespace HeelsDesignLinker
         public static string BaselineApplyWaiting => IsChine
             ? "等待基准行动就绪（先于规则行动 apply）…"
             : "Waiting for baseline actions (apply before rule actions)…";
-        public static string SessionRestoredNoReapply => IsChine
-            ? "已恢复上次关闭时的命中状态，跳过基准与规则 re-apply"
-            : "Restored last shutdown match; skipping baseline and rule re-apply";
         public static string ConfigSanitizedMisplacedActions(int count) => IsChine
             ? $"配置校验：已将 {count} 个错放在其它类型行动上的字段拆分为独立行动并已保存"
             : $"Config validation: split {count} misplaced field(s) into separate actions and saved";

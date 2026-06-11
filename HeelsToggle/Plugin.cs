@@ -868,8 +868,6 @@ namespace HeelsDesignLinker
         private string penumbraStatusDisplayText = "";
         private string lastAppliedHonorificJson = "";
         private string lastAppliedMoodleKey = "";
-        /// <summary>启动后若命中与上次关闭相同，跳过一次基准/规则 re-apply。</summary>
-        private bool skipReapplyForRestoredShutdownMatch;
         /// <summary>本 apply 周期内基准是否成功写入了 Moodles（用于随后让规则 Moodles 再 apply 一次）。</summary>
         private bool baselineMoodleAppliedThisCycle;
         /// <summary>基准 Moodles apply 后须等待至此时间才允许规则层 Moodles（避免 Moodles 插件异步清 buff 覆盖规则结果）。</summary>
@@ -3270,9 +3268,6 @@ namespace HeelsDesignLinker
                 if (localPlayer == null || !localPlayer.IsValid())
                     return;
 
-                if (TryConsumeRestoredShutdownMatchSkip(""))
-                    return;
-
                 var noMatchSignatureChanged = lastMatchedSetSignature != "";
                 if (TrySkipAppearanceApplyBecauseUnchanged(localPlayer, null, out var noMatchSkipStatus))
                 {
@@ -3328,9 +3323,6 @@ namespace HeelsDesignLinker
 
             var hadMatchedRuleSet = !string.IsNullOrEmpty(lastMatchedSetSignature);
             var matchedSignatureChanged = matchedSignature != lastMatchedSetSignature;
-
-            if (TryConsumeRestoredShutdownMatchSkip(matchedSignature))
-                return;
 
             if (TrySkipAppearanceApplyBecauseUnchanged(localPlayer, appliedRules, out var matchSkipStatus))
             {
@@ -5469,8 +5461,6 @@ namespace HeelsDesignLinker
             {
                 lastAppliedMoodleKey = "";
             }
-
-            skipReapplyForRestoredShutdownMatch = true;
         }
 
         private void PersistShutdownApplySnapshot()
@@ -5488,34 +5478,6 @@ namespace HeelsDesignLinker
             {
                 PluginLog.Warning($"Failed to persist shutdown apply snapshot: {ex.Message}");
             }
-        }
-
-        private bool MatchesRestoredShutdownMatch(string matchedSignature)
-        {
-            if (Configuration.LastShutdownActiveRuleSetIndex != Configuration.ActiveRuleSetIndex)
-                return false;
-
-            return string.Equals(
-                matchedSignature ?? "",
-                Configuration.LastShutdownMatchedRuleSignature ?? "",
-                StringComparison.Ordinal);
-        }
-
-        private bool TryConsumeRestoredShutdownMatchSkip(string matchedSignature)
-        {
-            if (!skipReapplyForRestoredShutdownMatch)
-                return false;
-
-            if (!MatchesRestoredShutdownMatch(matchedSignature))
-            {
-                skipReapplyForRestoredShutdownMatch = false;
-                return false;
-            }
-
-            skipReapplyForRestoredShutdownMatch = false;
-            lastApplyUtc = DateTime.UtcNow;
-            applyGateStatus = Localization.SessionRestoredNoReapply;
-            return true;
         }
 
         private static bool PenumbraActionTargetsMod(HeelsRuleAction action, BaselineParameterId param) =>

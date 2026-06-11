@@ -4,10 +4,19 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.17";
+        public const string CurrentVersion = "1.4.2.18";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.18",
+                "2026-06-10",
+                [
+                    "移除插件重载/登录后「命中相同则跳过整段 apply」的启动保护；仍恢复上次关闭时的去重状态，Moodles 由 dedup 避免重复 apply",
+                ],
+                [
+                    "Remove startup skip when restored match equals last shutdown; dedup snapshot still restored so Moodles avoid duplicate apply",
+                ]),
             new(
                 "1.4.2.17",
                 "2026-06-10",
