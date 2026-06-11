@@ -5,7 +5,7 @@
   "Punchline": "Match rules by SimpleHeels height or rendered equipment — not just heels — then auto-apply Glamourer/Penumbra and more",
   "Description": "不限于高跟鞋：按 SimpleHeels 高度或当前渲染装备外观匹配规则，自动联动 Glamourer/Penumbra，并可选用 Moodles / Honorific / SoundMixer。",
   "ApplicableVersion": "any",
-  "AssemblyVersion": "1.4.2.18",
+  "AssemblyVersion": "1.4.2.19",
   "DalamudApiLevel": 15,
   "Tags": [
     "glamour",

@@ -979,6 +979,8 @@ namespace HeelsDesignLinker
         private static readonly TimeSpan BaselineGlamourerRevertDelay = TimeSpan.FromSeconds(90);
         private DateTime? loginSinceUtc;
         private bool isLoginProtectionActive;
+        /// <summary>登录/中途启用保护结束后，须强制完整 apply 规则一次（其它插件可能在预热期重置临时状态）。</summary>
+        private bool pendingPostStartupProtectionApply;
         private DateTime? localPlayerStableSinceUtc;
         private DateTime? appearancePopulatedSinceUtc;
         private uint lastTrackedMainHandItemId;
@@ -2539,7 +2541,20 @@ namespace HeelsDesignLinker
 
             isLoginProtectionActive = false;
             baselineActionsAllowedAfterUtc = DateTime.UtcNow + PostLoginBaselineDelay;
+            pendingPostStartupProtectionApply = true;
             ResetAppearanceReadyTracking();
+        }
+
+        /// <summary>启动保护结束后首轮规则 apply：清指纹/去重，确保 Glamourer/Penumbra/Moodles 等重新写入。</summary>
+        private void PreparePostStartupProtectionReapply()
+        {
+            ClearAppearanceApplyFingerprint();
+            ClearPenumbraTemporaryOverrides(forceRemove: true);
+            ClearPenumbraApplyTracking();
+            lastAppliedHonorificJson = "";
+            lastAppliedMoodleKey = "";
+            ruleMoodlesAllowedAfterUtc = null;
+            lastApplyUtc = DateTime.MinValue;
         }
 
         private bool IsBaselineApplyAllowed()
@@ -2612,6 +2627,7 @@ namespace HeelsDesignLinker
             localPlayerStableSinceUtc = null;
             appearancePopulatedSinceUtc = null;
             baselineActionsAllowedAfterUtc = null;
+            pendingPostStartupProtectionApply = false;
             lastApplyUtc = DateTime.MinValue;
             ClearPenumbraApplyTracking();
             // 勿 ResetPenumbraStatusDisplay：会强制 isPenumbraIpcReady=false，中途启用插件后须等 Refresh 间隔或开面板才恢复
@@ -3268,6 +3284,9 @@ namespace HeelsDesignLinker
                 if (localPlayer == null || !localPlayer.IsValid())
                     return;
 
+                if (pendingPostStartupProtectionApply)
+                    pendingPostStartupProtectionApply = false;
+
                 var noMatchSignatureChanged = lastMatchedSetSignature != "";
                 if (TrySkipAppearanceApplyBecauseUnchanged(localPlayer, null, out var noMatchSkipStatus))
                 {
@@ -3302,7 +3321,7 @@ namespace HeelsDesignLinker
                 return;
             }
 
-            if (!IsApplyCooldownElapsed(out var cooldownStatus))
+            if (!pendingPostStartupProtectionApply && !IsApplyCooldownElapsed(out var cooldownStatus))
             {
                 applyGateStatus = cooldownStatus;
                 return;
@@ -3317,6 +3336,9 @@ namespace HeelsDesignLinker
             if (localPlayer == null || !localPlayer.IsValid())
                 return;
 
+            if (pendingPostStartupProtectionApply)
+                PreparePostStartupProtectionReapply();
+
             var appliedRules = new List<HeelsRule>(currentAppliedRuleIndices.Count);
             foreach (var appliedIndex in currentAppliedRuleIndices)
                 appliedRules.Add(activeRules[appliedIndex]);
@@ -3324,7 +3346,8 @@ namespace HeelsDesignLinker
             var hadMatchedRuleSet = !string.IsNullOrEmpty(lastMatchedSetSignature);
             var matchedSignatureChanged = matchedSignature != lastMatchedSetSignature;
 
-            if (TrySkipAppearanceApplyBecauseUnchanged(localPlayer, appliedRules, out var matchSkipStatus))
+            if (!pendingPostStartupProtectionApply
+                && TrySkipAppearanceApplyBecauseUnchanged(localPlayer, appliedRules, out var matchSkipStatus))
             {
                 if (matchedSignatureChanged)
                     SyncMatchedRuleSetMetadata(activeRules, currentAppliedRuleIndices, matchedSignature, localPlayer);
@@ -3393,6 +3416,7 @@ namespace HeelsDesignLinker
             }
 
             RecordAppearanceApplyFingerprint(localPlayer);
+            pendingPostStartupProtectionApply = false;
             }
             finally
             {

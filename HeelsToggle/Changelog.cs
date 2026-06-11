@@ -4,10 +4,19 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.18";
+        public const string CurrentVersion = "1.4.2.19";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.19",
+                "2026-06-10",
+                [
+                    "登录/中途启用保护结束后强制完整 apply 规则一次：清除外观指纹与行动去重，避免预热期被其它插件重置的临时状态无法恢复",
+                ],
+                [
+                    "Force one full rule apply after login/enable protection ends; clears fingerprint and dedup so temp state reset by other plugins during warmup is restored",
+                ]),
             new(
                 "1.4.2.18",
                 "2026-06-10",
