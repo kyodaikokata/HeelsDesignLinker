@@ -36,7 +36,8 @@ internal static class DrawObjectEquipmentReader
     public static bool TryReadLocalPlayerSlots(
         IPlayerCharacter? localPlayer,
         out IReadOnlyList<RenderedEquipmentSlotInfo> slots,
-        out string? error)
+        out string? error,
+        bool includeModelPaths = true)
     {
         slots = [];
         error = null;
@@ -94,7 +95,7 @@ internal static class DrawObjectEquipmentReader
                     _ => default,
                 };
 
-                result.Add(CreateSlotInfo(mapping, equipmentModelId, human));
+                result.Add(CreateSlotInfo(mapping, equipmentModelId, human, includeModelPaths));
             }
 
             slots = result;
@@ -120,7 +121,8 @@ internal static class DrawObjectEquipmentReader
     private static unsafe RenderedEquipmentSlotInfo CreateSlotInfo(
         EquipSlotCategoryMapping.SlotMapping mapping,
         EquipmentModelId equipmentModelId,
-        Human* human)
+        Human* human,
+        bool includeModelPaths)
     {
         return new RenderedEquipmentSlotInfo
         {
@@ -129,7 +131,7 @@ internal static class DrawObjectEquipmentReader
             Variant = equipmentModelId.Variant,
             EquipSlotCategoryRowId = mapping.EquipSlotCategoryRowId,
             HumanModelArrayIndex = mapping.HumanModelArrayIndex,
-            ModelPath = TryGetModelPath(human, mapping.HumanModelArrayIndex),
+            ModelPath = includeModelPaths ? TryGetModelPath(human, mapping.HumanModelArrayIndex) : null,
         };
     }
 

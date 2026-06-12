@@ -4,10 +4,50 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.19";
+        public const string CurrentVersion = "1.4.2.23";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.23",
+                "2026-06-10",
+                [
+                    "性能：每帧只读取一次 DrawObject 装备快照，外观变化检测与规则匹配共用，不再按规则条数重复扫描",
+                    "性能：外观 skip 路径复用单帧指纹，热路径不再读取 ModelPath；SimpleHeels IPC 改为 100ms 轮询（外观/首次变化时立即刷新）",
+                    "性能：高度、外观、SFW、配置未变时跳过整段规则重匹配；配置用途（Glamourer/Penumbra 等）在保存时缓存，避免每帧 LINQ 扫全规则集",
+                ],
+                [
+                    "Perf: one DrawObject equip snapshot per frame shared by appearance tracking and rule matching (no per-rule rescans)",
+                    "Perf: skip path reuses per-frame fingerprint; hot path skips ModelPath; SimpleHeels IPC polled every 100ms (immediate on appearance/first read)",
+                    "Perf: skip full rule rematch when height, appearance, SFW, and config unchanged; cache configured output plugins on save instead of per-frame LINQ",
+                ]),
+            new(
+                "1.4.2.22",
+                "2026-06-10",
+                [
+                    "SoundMixer IPC 改为约 10s 轮询（不再每帧检测）；连接/断开时立即更新调试面板状态，gate 探测同步 10s 间隔",
+                ],
+                [
+                    "SoundMixer IPC polled every ~10s instead of each frame; debug panel updates immediately on connect/disconnect; gate probes use same interval",
+                ]),
+            new(
+                "1.4.2.21",
+                "2026-06-10",
+                [
+                    "SoundMixer：插件启用/禁用后立即重检 IPC；IPC 重连后强制补 apply 一次临时预设/音量（绕过去重与 IPC 达标跳过）",
+                ],
+                [
+                    "SoundMixer: immediate IPC recheck on plugin load/unload; force one temp preset/volume re-apply after IPC reconnect",
+                ]),
+            new(
+                "1.4.2.20",
+                "2026-06-10",
+                [
+                    "修复 Penumbra 临时 apply「仅启用 Mod」时传入空选项字典导致 Mod 选项组被重置的问题",
+                ],
+                [
+                    "Fix Penumbra temp apply resetting mod options when enable-only action passed an empty settings dictionary",
+                ]),
             new(
                 "1.4.2.19",
                 "2026-06-10",

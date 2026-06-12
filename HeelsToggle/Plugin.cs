@@ -942,6 +942,8 @@ namespace HeelsDesignLinker
         private DateTime soundMixerIpcProbeUtc = DateTime.MinValue;
         private IReadOnlyList<SoundMixerIpcGateProbe> soundMixerIpcGateProbes = [];
         private bool soundMixerOverridesActive = false;
+        /// <summary>SoundMixer IPC 重连后须强制补 apply 一次临时预设/音量。</summary>
+        private bool pendingSoundMixerReconnectReapply;
         private bool penumbraTemporaryOverridesActive = false;
         private bool sfwTemporaryOverridesActive = false;
         private PenumbraApplyLayerConfig? _activePenumbraApplyLayer;
@@ -961,6 +963,21 @@ namespace HeelsDesignLinker
         private DateTime lastDependencyCheckUtc = DateTime.MinValue;
         private static readonly TimeSpan DependencyRecheckWhenMissing = TimeSpan.FromSeconds(2);
         private static readonly TimeSpan DependencyRecheckWhenReady = TimeSpan.FromSeconds(30);
+        private static readonly TimeSpan SoundMixerDependencyRecheckInterval = TimeSpan.FromSeconds(10);
+        private DateTime lastSoundMixerDependencyCheckUtc = DateTime.MinValue;
+        private static readonly TimeSpan HeelsHeightRefreshInterval = TimeSpan.FromMilliseconds(100);
+        private DateTime lastHeelsIpcRefreshUtc = DateTime.MinValue;
+
+        private bool cachedConfigUsesGlamourer;
+        private bool cachedConfigUsesPenumbra;
+        private bool cachedConfigUsesHonorific;
+        private bool cachedConfigUsesMoodles;
+        private bool cachedConfigUsesSoundMixer;
+        private bool cachedHasConfiguredOutput;
+        private int configUsageCacheRevision;
+        private int lastRuleMatchConfigRevision = -1;
+        private bool lastRuleMatchAllowEquipment;
+        private bool lastRuleMatchSfwMode;
 
         /// <summary>登录保护最短时长（与主手锚点并行），期间不匹配、不 apply。</summary>
         private static readonly TimeSpan LoginProtectionMinDuration = TimeSpan.FromSeconds(0.35);
@@ -1269,6 +1286,7 @@ namespace HeelsDesignLinker
             CommandManager.AddHandler("/hdl", new CommandInfo(OnCommand) { HelpMessage = Localization.CommandHelp });
             CommandManager.AddHandler("/heelsdesign", new CommandInfo(OnCommand) { HelpMessage = Localization.CommandHelp });
             
+            RebuildConfigUsageCache();
             RefreshDependencies(force: true);
             Framework.Update += OnFrameworkUpdate;
             ClientState.Login += OnLogin;
@@ -1311,6 +1329,7 @@ namespace HeelsDesignLinker
             _penumbraInterop.RefreshData(force: true);
             _moodlesInterop.RefreshList(force: true);
             _honorificInterop.RefreshTitleList(ObjectTable.LocalPlayer, force: true);
+            RefreshSoundMixerDependencyIfNeeded(force: true);
             // _customizePlusInterop.RefreshProfileList(force: true);  // 已移除 Customize+ 支持
         }
 
@@ -2113,10 +2132,12 @@ namespace HeelsDesignLinker
         private bool TrySkipAppearanceApplyBecauseUnchanged(
             IPlayerCharacter? localPlayer,
             IReadOnlyList<HeelsRule>? appliedRules,
+            RenderedEquipmentSnapshot renderedSnapshot,
+            ref string? frameAppearanceFingerprint,
             out string status)
         {
             status = "";
-            if (!DrawObjectAppearanceBaseline.CanReadDrawObject(localPlayer))
+            if (!renderedSnapshot.IsAvailable)
                 return false;
 
             if (Configuration.SfwModeActive != _lastAppliedSfwModeForFingerprint
@@ -2125,8 +2146,13 @@ namespace HeelsDesignLinker
 
             if (_lastAppliedAppearanceFingerprintKey != null)
             {
-                var currentFingerprint = DrawObjectAppearanceBaseline.ComputeFingerprint(localPlayer);
-                if (string.Equals(currentFingerprint, _lastAppliedAppearanceFingerprintKey, StringComparison.Ordinal))
+                frameAppearanceFingerprint ??= DrawObjectAppearanceBaseline.ComputeFingerprint(
+                    localPlayer,
+                    renderedSnapshot);
+                if (string.Equals(
+                        frameAppearanceFingerprint,
+                        _lastAppliedAppearanceFingerprintKey,
+                        StringComparison.Ordinal))
                 {
                     status = Localization.AppearanceApplySkippedUnchanged;
                     return true;
@@ -2201,16 +2227,23 @@ namespace HeelsDesignLinker
             return ComparePenumbraOptionActionState(action, playerIndex) == true;
         }
 
-        private void RecordAppearanceApplyFingerprint(IPlayerCharacter? localPlayer)
+        private void RecordAppearanceApplyFingerprint(
+            IPlayerCharacter? localPlayer,
+            RenderedEquipmentSnapshot renderedSnapshot,
+            ref string? frameAppearanceFingerprint)
         {
-            _lastAppliedAppearanceFingerprintKey = DrawObjectAppearanceBaseline.ComputeFingerprint(localPlayer);
+            frameAppearanceFingerprint ??= DrawObjectAppearanceBaseline.ComputeFingerprint(
+                localPlayer,
+                renderedSnapshot);
+            _lastAppliedAppearanceFingerprintKey = frameAppearanceFingerprint;
             _lastAppliedSfwModeForFingerprint = Configuration.SfwModeActive;
         }
 
         private void ApplyNonAppearanceRuleActions(
             IReadOnlyList<HeelsRuleAction> ruleActions,
             IPlayerCharacter localPlayer,
-            ref bool appliedAnything)
+            ref bool appliedAnything,
+            bool forceSoundMixerReapply = false)
         {
             foreach (var action in ruleActions)
             {
@@ -2265,7 +2298,7 @@ namespace HeelsDesignLinker
                         break;
                     case ActionType.SoundMixer:
                         if (isSoundMixerIpcReady)
-                            ApplySoundMixerAction(action, ref appliedAnything);
+                            ApplySoundMixerAction(action, ref appliedAnything, forceSoundMixerReapply);
                         break;
                 }
             }
@@ -2273,7 +2306,8 @@ namespace HeelsDesignLinker
 
         private void RecordNonAppearanceApplyFromSkip(
             IReadOnlyList<HeelsRule> appliedRules,
-            IPlayerCharacter localPlayer)
+            IPlayerCharacter localPlayer,
+            bool forceSoundMixerReapply = false)
         {
             var ruleActions = new List<HeelsRuleAction>();
             foreach (var appliedRule in appliedRules)
@@ -2281,7 +2315,7 @@ namespace HeelsDesignLinker
 
             appliedActionSummariesThisCycle.Clear();
             var appliedAnything = false;
-            ApplyNonAppearanceRuleActions(ruleActions, localPlayer, ref appliedAnything);
+            ApplyNonAppearanceRuleActions(ruleActions, localPlayer, ref appliedAnything, forceSoundMixerReapply);
             if (!appliedAnything)
                 return;
 
@@ -2305,9 +2339,8 @@ namespace HeelsDesignLinker
         /// </summary>
         private void CollectAppliedRuleIndices(
             List<HeelsRule> rules,
-            float height,
-            List<int> result,
-            bool allowEquipmentEvaluation = true)
+            RuleEvaluationContext context,
+            List<int> result)
         {
             result.Clear();
             var blockMatched = false;
@@ -2320,12 +2353,29 @@ namespace HeelsDesignLinker
                 if (blockMatched)
                     continue; // 同一 OR 块内已命中 → 互斥跳过
 
-                if (TryMatchRule(rules[i], i, height, allowEquipmentEvaluation))
+                if (TryMatchRule(rules[i], i, context))
                 {
                     result.Add(i);
                     blockMatched = true;
                 }
             }
+        }
+
+        private bool CanReuseRuleMatchResults(
+            bool matchingHeightChanged,
+            bool appearanceChanged,
+            bool allowEquipmentEvaluation)
+        {
+            if (matchingHeightChanged || appearanceChanged)
+                return false;
+
+            if (allowEquipmentEvaluation != lastRuleMatchAllowEquipment)
+                return false;
+
+            if (Configuration.SfwModeActive != lastRuleMatchSfwMode)
+                return false;
+
+            return configUsageCacheRevision == lastRuleMatchConfigRevision;
         }
 
         private static string BuildMatchedSetSignature(List<int> appliedIndices)
@@ -2386,27 +2436,38 @@ namespace HeelsDesignLinker
             };
         }
 
-        private bool ConfigurationUsesGlamourer() =>
-            Configuration.RuleSets.Any(rs => rs.Rules.Any(r => r.IsActive && RuleUsesGlamourer(r)));
+        private void RebuildConfigUsageCache()
+        {
+            cachedConfigUsesGlamourer = Configuration.RuleSets.Any(rs =>
+                rs.Rules.Any(r => r.IsActive && RuleUsesGlamourer(r)));
+            cachedConfigUsesPenumbra = Configuration.RuleSets.Any(rs =>
+                rs.Rules.Any(r => r.IsActive && RuleUsesPenumbra(r)));
+            cachedConfigUsesHonorific = Configuration.RuleSets.Any(rs =>
+                rs.Rules.Any(r => r.IsActive && RuleUsesHonorific(r)));
+            cachedConfigUsesMoodles = Configuration.RuleSets.Any(rs =>
+                rs.Rules.Any(r => r.IsActive && RuleUsesMoodles(r)));
+            cachedConfigUsesSoundMixer = Configuration.RuleSets.Any(rs =>
+                rs.Rules.Any(r => r.IsActive && RuleUsesSoundMixer(r)));
+            cachedHasConfiguredOutput =
+                cachedConfigUsesGlamourer
+                || cachedConfigUsesPenumbra
+                || cachedConfigUsesHonorific
+                || cachedConfigUsesMoodles
+                || cachedConfigUsesSoundMixer;
+            configUsageCacheRevision++;
+        }
 
-        private bool ConfigurationUsesPenumbra() =>
-            Configuration.RuleSets.Any(rs => rs.Rules.Any(r => r.IsActive && RuleUsesPenumbra(r)));
+        private bool ConfigurationUsesGlamourer() => cachedConfigUsesGlamourer;
 
-        private bool ConfigurationUsesHonorific() =>
-            Configuration.RuleSets.Any(rs => rs.Rules.Any(r => r.IsActive && RuleUsesHonorific(r)));
+        private bool ConfigurationUsesPenumbra() => cachedConfigUsesPenumbra;
 
-        private bool ConfigurationUsesMoodles() =>
-            Configuration.RuleSets.Any(rs => rs.Rules.Any(r => r.IsActive && RuleUsesMoodles(r)));
+        private bool ConfigurationUsesHonorific() => cachedConfigUsesHonorific;
 
-        private bool ConfigurationUsesSoundMixer() =>
-            Configuration.RuleSets.Any(rs => rs.Rules.Any(r => r.IsActive && RuleUsesSoundMixer(r)));
+        private bool ConfigurationUsesMoodles() => cachedConfigUsesMoodles;
 
-        private bool HasConfiguredOutput() =>
-            ConfigurationUsesGlamourer()
-            || ConfigurationUsesPenumbra()
-            || ConfigurationUsesHonorific()
-            || ConfigurationUsesMoodles()
-            || ConfigurationUsesSoundMixer();
+        private bool ConfigurationUsesSoundMixer() => cachedConfigUsesSoundMixer;
+
+        private bool HasConfiguredOutput() => cachedHasConfiguredOutput;
 
         /// <summary>
         /// 依赖插件可能晚于本插件完成加载/注册 IPC，因此在就绪前周期性重检。
@@ -2452,6 +2513,8 @@ namespace HeelsDesignLinker
 
         private void RefreshDependenciesIfNeeded()
         {
+            RefreshSoundMixerDependencyIfNeeded();
+
             var interval = IsReadyForWork() ? DependencyRecheckWhenReady : DependencyRecheckWhenMissing;
             var now = DateTime.UtcNow;
             if ((now - lastDependencyCheckUtc) < interval)
@@ -2462,6 +2525,9 @@ namespace HeelsDesignLinker
 
         private void RefreshDependencies(bool force)
         {
+            if (force)
+                RefreshSoundMixerDependencyIfNeeded(force: true);
+
             if (!force)
             {
                 var interval = IsReadyForWork() ? DependencyRecheckWhenReady : DependencyRecheckWhenMissing;
@@ -2496,10 +2562,7 @@ namespace HeelsDesignLinker
             UpdatePenumbraStatusDisplay();
             isMoodlesIpcReady = _moodlesInterop.IsIpcAvailable();
             isHonorificIpcReady = _honorificInterop.IsIpcAvailable();
-            RefreshSoundMixerDependencyState();
-            UpdateSoundMixerStatusDisplay();
-            if (isSoundMixerIpcReady)
-                _soundMixerInterop.RefreshData(force: false);
+
             // isCustomizePlusIpcReady = _customizePlusInterop.IsIpcAvailable();  // 已移除 Customize+ 支持
 
             var nowReady = IsReadyForWork();
@@ -2507,6 +2570,45 @@ namespace HeelsDesignLinker
             {
                 if (ConfigurationUsesPenumbra() && isPenumbraIpcReady)
                     _penumbraInterop.RefreshData(force: true);
+            }
+        }
+
+        /// <summary>约 10s 轮询 SoundMixer 加载/IPC；连接或断开时立即刷新调试面板状态。</summary>
+        private void RefreshSoundMixerDependencyIfNeeded(bool force = false)
+        {
+            var now = DateTime.UtcNow;
+            if (!force && (now - lastSoundMixerDependencyCheckUtc) < SoundMixerDependencyRecheckInterval)
+                return;
+
+            lastSoundMixerDependencyCheckUtc = now;
+            var wasLoaded = isSoundMixerLoaded;
+            var wasIpcReady = isSoundMixerIpcReady;
+
+            RefreshSoundMixerDependencyState();
+
+            var stateChanged = wasLoaded != isSoundMixerLoaded || wasIpcReady != isSoundMixerIpcReady;
+            UpdateSoundMixerStatusDisplay(immediate: stateChanged);
+
+            if (!wasIpcReady && isSoundMixerIpcReady && ConfigurationUsesSoundMixer())
+            {
+                if (!pendingPostStartupProtectionApply)
+                {
+                    pendingSoundMixerReconnectReapply = true;
+                    ClearSoundMixerApplyDedupKeys();
+                    lastApplyUtc = DateTime.MinValue;
+                }
+
+                soundMixerIpcProbeUtc = DateTime.MinValue;
+                _soundMixerInterop.RefreshData(force: true);
+            }
+            else if (stateChanged && !isSoundMixerIpcReady)
+            {
+                soundMixerIpcGateProbes = [];
+                soundMixerIpcProbeUtc = DateTime.MinValue;
+            }
+            else if (isSoundMixerIpcReady)
+            {
+                _soundMixerInterop.RefreshData(force: false);
             }
         }
 
@@ -2646,6 +2748,8 @@ namespace HeelsDesignLinker
             stableTrackingSignature = null;
             ruleMatchStableSinceUtc = null;
             lastRuleMatchingHeight = float.NaN;
+            lastHeelsIpcRefreshUtc = DateTime.MinValue;
+            lastRuleMatchConfigRevision = -1;
             lastTempOffsetSeenUtc = null;
             lastKnownActualHeelsHeight = 0f;
             _appearanceChangeTracker.Reset();
@@ -2734,19 +2838,20 @@ namespace HeelsDesignLinker
         private void RefreshSoundMixerDependencyState()
         {
             var loadedNow = SoundMixerInterop.IsSoundMixerLoaded(PluginInterface);
-            if (loadedNow)
-            {
-                isSoundMixerLoaded = true;
-                soundMixerLoadedLastTrueUtc = DateTime.UtcNow;
-            }
-            else if (soundMixerLoadedLastTrueUtc.HasValue
-                     && DateTime.UtcNow - soundMixerLoadedLastTrueUtc.Value < PenumbraIpcReadyGrace)
-            {
-            }
-            else
+            if (!loadedNow)
             {
                 isSoundMixerLoaded = false;
+                isSoundMixerIpcReady = false;
+                soundMixerDetectedApiVersion = 0;
+                soundMixerApiVersionCompatible = true;
+                soundMixerLoadedLastTrueUtc = null;
+                soundMixerIpcLastReadyUtc = null;
+                soundMixerIpcGateProbes = [];
+                return;
             }
+
+            isSoundMixerLoaded = true;
+            soundMixerLoadedLastTrueUtc = DateTime.UtcNow;
 
             var ipcNow = _soundMixerInterop.TryGetApiVersion(out var apiVersion);
             if (ipcNow)
@@ -2768,7 +2873,17 @@ namespace HeelsDesignLinker
             }
         }
 
-        private void UpdateSoundMixerStatusDisplay()
+        private void ClearSoundMixerApplyDedupKeys()
+        {
+            foreach (var key in lastAppliedActionKeys
+                         .Where(k => k.StartsWith("SM:", StringComparison.Ordinal))
+                         .ToList())
+            {
+                lastAppliedActionKeys.Remove(key);
+            }
+        }
+
+        private void UpdateSoundMixerStatusDisplay(bool immediate = false)
         {
             var rawHasError = !isSoundMixerLoaded || !isSoundMixerIpcReady;
             var statusText = !isSoundMixerLoaded
@@ -2781,6 +2896,14 @@ namespace HeelsDesignLinker
             {
                 soundMixerRawErrorSinceUtc = null;
                 soundMixerStatusDisplayError = false;
+                soundMixerStatusDisplayText = statusText;
+                return;
+            }
+
+            if (immediate)
+            {
+                soundMixerRawErrorSinceUtc = null;
+                soundMixerStatusDisplayError = true;
                 soundMixerStatusDisplayText = statusText;
                 return;
             }
@@ -2804,7 +2927,7 @@ namespace HeelsDesignLinker
             }
 
             var now = DateTime.UtcNow;
-            if ((now - soundMixerIpcProbeUtc).TotalSeconds < 5)
+            if ((now - soundMixerIpcProbeUtc) < SoundMixerDependencyRecheckInterval)
                 return;
 
             soundMixerIpcProbeUtc = now;
@@ -3106,7 +3229,7 @@ namespace HeelsDesignLinker
         }
 
         /// <summary>刷新 SimpleHeels 高度。登录保护期内 IPC 未就绪不阻塞启动门控。</summary>
-        private bool TryRefreshHeelsHeight(bool useSimpleHeels)
+        private bool TryRefreshHeelsHeight(bool useSimpleHeels, bool forceRefresh = false)
         {
             if (!useSimpleHeels || !isSimpleHeelsAvailable || !isSimpleHeelsIpcReady)
             {
@@ -3118,8 +3241,15 @@ namespace HeelsDesignLinker
                 lastIpcData = !useSimpleHeels
                     ? Localization.SimpleHeelsDisabledIpc
                     : Localization.SimpleHeelsUnavailableIpc;
+                lastHeelsIpcRefreshUtc = DateTime.MinValue;
                 return true;
             }
+
+            var now = DateTime.UtcNow;
+            if (!forceRefresh
+                && lastHeelsIpcRefreshUtc != DateTime.MinValue
+                && (now - lastHeelsIpcRefreshUtc) < HeelsHeightRefreshInterval)
+                return true;
 
             try
             {
@@ -3145,6 +3275,7 @@ namespace HeelsDesignLinker
                 currentHeelsHasTempOffset = hasTempOffset;
                 currentHeelsHeight = SelectHeelsHeightForMode(defaultHeight, actualHeight, hasTempOffset);
                 lastError = "";
+                lastHeelsIpcRefreshUtc = now;
                 return true;
             }
             catch (Exception ex)
@@ -3155,6 +3286,7 @@ namespace HeelsDesignLinker
                 currentHeelsActualHeight = 0f;
                 currentHeelsHasTempOffset = false;
                 currentHeelsHeight = 0f;
+                lastHeelsIpcRefreshUtc = DateTime.MinValue;
                 return false;
             }
         }
@@ -3206,7 +3338,9 @@ namespace HeelsDesignLinker
 
             _wasAppearanceTransformActive = appearanceTransformActive;
 
+            var frameRenderedSnapshot = RenderedEquipmentSnapshot.Capture(localPlayerForGate);
             var appearanceChanged = _appearanceChangeTracker.CheckChanged(
+                frameRenderedSnapshot,
                 localPlayerForGate,
                 out var appearanceModelIdsChanged);
 
@@ -3229,7 +3363,9 @@ namespace HeelsDesignLinker
                 EndLoginProtection();
             }
 
-            var heelsReady = TryRefreshHeelsHeight(useSimpleHeels);
+            var heelsReady = TryRefreshHeelsHeight(
+                useSimpleHeels,
+                forceRefresh: appearanceChanged || float.IsNaN(lastRuleMatchingHeight));
             _penumbraInterop.ReadIncludingTemporarySettings = Configuration.UsePenumbraTemporaryApply;
 
             var matchingHeightChanged = HasRuleMatchingHeightChanged(currentHeelsHeight);
@@ -3254,11 +3390,19 @@ namespace HeelsDesignLinker
 
             var activeRules = ActiveRules;
             var allowEquipmentEvaluation = !appearanceTransformActive;
-            CollectAppliedRuleIndices(
-                activeRules,
-                currentHeelsHeight,
-                currentAppliedRuleIndices,
-                allowEquipmentEvaluation);
+            if (!CanReuseRuleMatchResults(matchingHeightChanged, appearanceChanged, allowEquipmentEvaluation))
+            {
+                var ruleEvaluationContext = BuildRuleEvaluationContext(
+                    currentHeelsHeight,
+                    allowEquipmentEvaluation,
+                    frameRenderedSnapshot);
+                CollectAppliedRuleIndices(activeRules, ruleEvaluationContext, currentAppliedRuleIndices);
+                lastRuleMatchAllowEquipment = allowEquipmentEvaluation;
+                lastRuleMatchSfwMode = Configuration.SfwModeActive;
+                lastRuleMatchConfigRevision = configUsageCacheRevision;
+            }
+
+            string? frameAppearanceFingerprint = null;
             currentMatchedRuleIndex = currentAppliedRuleIndices.Count > 0 ? currentAppliedRuleIndices[0] : -1;
             HeelsRule? matchedRule = currentMatchedRuleIndex >= 0 ? activeRules[currentMatchedRuleIndex] : null;
             var matchedSignature = BuildMatchedSetSignature(currentAppliedRuleIndices);
@@ -3287,13 +3431,24 @@ namespace HeelsDesignLinker
                 if (pendingPostStartupProtectionApply)
                     pendingPostStartupProtectionApply = false;
 
+                if (pendingSoundMixerReconnectReapply)
+                    pendingSoundMixerReconnectReapply = false;
+
                 var noMatchSignatureChanged = lastMatchedSetSignature != "";
-                if (TrySkipAppearanceApplyBecauseUnchanged(localPlayer, null, out var noMatchSkipStatus))
+                if (TrySkipAppearanceApplyBecauseUnchanged(
+                        localPlayer,
+                        null,
+                        frameRenderedSnapshot,
+                        ref frameAppearanceFingerprint,
+                        out var noMatchSkipStatus))
                 {
                     if (noMatchSignatureChanged)
                         SyncMatchedRuleSetMetadata(activeRules, currentAppliedRuleIndices, "", localPlayer);
                     applyGateStatus = noMatchSkipStatus;
-                    RecordAppearanceApplyFingerprint(localPlayer);
+                    RecordAppearanceApplyFingerprint(
+                        localPlayer,
+                        frameRenderedSnapshot,
+                        ref frameAppearanceFingerprint);
                     return;
                 }
 
@@ -3311,7 +3466,10 @@ namespace HeelsDesignLinker
                     SaveConfig();
                 if (noMatchAppliedAnything)
                     lastApplyUtc = DateTime.UtcNow;
-                RecordAppearanceApplyFingerprint(localPlayer);
+                RecordAppearanceApplyFingerprint(
+                    localPlayer,
+                    frameRenderedSnapshot,
+                    ref frameAppearanceFingerprint);
                 return;
             }
 
@@ -3321,7 +3479,9 @@ namespace HeelsDesignLinker
                 return;
             }
 
-            if (!pendingPostStartupProtectionApply && !IsApplyCooldownElapsed(out var cooldownStatus))
+            if (!pendingPostStartupProtectionApply
+                && !pendingSoundMixerReconnectReapply
+                && !IsApplyCooldownElapsed(out var cooldownStatus))
             {
                 applyGateStatus = cooldownStatus;
                 return;
@@ -3347,13 +3507,26 @@ namespace HeelsDesignLinker
             var matchedSignatureChanged = matchedSignature != lastMatchedSetSignature;
 
             if (!pendingPostStartupProtectionApply
-                && TrySkipAppearanceApplyBecauseUnchanged(localPlayer, appliedRules, out var matchSkipStatus))
+                && !pendingSoundMixerReconnectReapply
+                && TrySkipAppearanceApplyBecauseUnchanged(
+                    localPlayer,
+                    appliedRules,
+                    frameRenderedSnapshot,
+                    ref frameAppearanceFingerprint,
+                    out var matchSkipStatus))
             {
                 if (matchedSignatureChanged)
                     SyncMatchedRuleSetMetadata(activeRules, currentAppliedRuleIndices, matchedSignature, localPlayer);
-                RecordNonAppearanceApplyFromSkip(appliedRules, localPlayer);
+                RecordNonAppearanceApplyFromSkip(
+                    appliedRules,
+                    localPlayer,
+                    pendingSoundMixerReconnectReapply);
+                pendingSoundMixerReconnectReapply = false;
                 applyGateStatus = matchSkipStatus;
-                RecordAppearanceApplyFingerprint(localPlayer);
+                RecordAppearanceApplyFingerprint(
+                    localPlayer,
+                    frameRenderedSnapshot,
+                    ref frameAppearanceFingerprint);
                 return;
             }
 
@@ -3377,7 +3550,7 @@ namespace HeelsDesignLinker
             {
                 var newCount = UpdateBaselineConfigs(activeRuleSet);
                 if (newCount > 0)
-                    PluginInterface.SavePluginConfig(Configuration);
+                    SaveConfig();
 
                 ApplyBaselineActions(activeRuleSet, activeRules, currentAppliedRuleIndices, ref appliedAnything);
             }
@@ -3392,7 +3565,11 @@ namespace HeelsDesignLinker
             // Glamourer：按优先级升序应用（数值大者最后写入，冲突槽位胜出；非冲突槽位共存）
             ApplyGlamourerActionsWithPriority(ruleActions, ref appliedAnything);
 
-            ApplyNonAppearanceRuleActions(ruleActions, localPlayer, ref appliedAnything);
+            ApplyNonAppearanceRuleActions(
+                ruleActions,
+                localPlayer,
+                ref appliedAnything,
+                pendingSoundMixerReconnectReapply);
 
             ApplySfwModeIfActive(ref appliedAnything, ref configDirty);
 
@@ -3415,8 +3592,12 @@ namespace HeelsDesignLinker
                 }
             }
 
-            RecordAppearanceApplyFingerprint(localPlayer);
+            RecordAppearanceApplyFingerprint(
+                localPlayer,
+                frameRenderedSnapshot,
+                ref frameAppearanceFingerprint);
             pendingPostStartupProtectionApply = false;
+            pendingSoundMixerReconnectReapply = false;
             }
             finally
             {
@@ -3846,13 +4027,16 @@ namespace HeelsDesignLinker
                 out error);
         }
 
-        private void ApplySoundMixerAction(HeelsRuleAction action, ref bool appliedAnything)
+        private void ApplySoundMixerAction(
+            HeelsRuleAction action,
+            ref bool appliedAnything,
+            bool forceReapply = false)
         {
             if (!ActionUsesSoundMixer(action))
                 return;
 
             var applyKey = BuildSoundMixerActionKey(action);
-            if (lastAppliedActionKeys.Contains(applyKey))
+            if (!forceReapply && lastAppliedActionKeys.Contains(applyKey))
                 return;
 
             var priority = action.SoundMixerPriority;
@@ -3861,11 +4045,14 @@ namespace HeelsDesignLinker
                 case SoundMixerActionKind.TemporaryPreset:
                 {
                     var preset = action.SoundMixerPresetName.Trim();
-                    var comparison = _soundMixerInterop.IsTemporaryPresetActive(preset);
-                    if (comparison == true)
+                    if (!forceReapply)
                     {
-                        lastAppliedActionKeys.Add(applyKey);
-                        return;
+                        var comparison = _soundMixerInterop.IsTemporaryPresetActive(preset);
+                        if (comparison == true)
+                        {
+                            lastAppliedActionKeys.Add(applyKey);
+                            return;
+                        }
                     }
 
                     if (_soundMixerInterop.TrySetTemporaryPreset(
@@ -3892,11 +4079,14 @@ namespace HeelsDesignLinker
                 {
                     var group = action.SoundMixerGroupName.Trim();
                     var volume = action.SoundMixerGroupVolume;
-                    var comparison = _soundMixerInterop.IsTemporaryGroupVolumeActive(group, volume);
-                    if (comparison == true)
+                    if (!forceReapply)
                     {
-                        lastAppliedActionKeys.Add(applyKey);
-                        return;
+                        var comparison = _soundMixerInterop.IsTemporaryGroupVolumeActive(group, volume);
+                        if (comparison == true)
+                        {
+                            lastAppliedActionKeys.Add(applyKey);
+                            return;
+                        }
                     }
 
                     if (_soundMixerInterop.TrySetTemporaryGroupVolume(
@@ -7672,7 +7862,7 @@ namespace HeelsDesignLinker
 
             ImGui.SetNextItemWidth(200);
             var matchStableDelay = Configuration.RuleMatchStableSeconds;
-            if (SliderFloatWithManualInput(Localization.RuleMatchStableDelay, ref matchStableDelay, 0f, 3f, "%.2f s", "rule_match_stable"))
+            if (SliderFloatWithManualInput(Localization.RuleMatchStableDelay, ref matchStableDelay, 0.1f, 3f, "%.2f s", "rule_match_stable"))
             {
                 Configuration.RuleMatchStableSeconds = matchStableDelay;
                 SaveConfig();
@@ -12425,7 +12615,7 @@ namespace HeelsDesignLinker
             }
         }
 
-        private bool TryMatchRule(HeelsRule rule, int ruleIndex, float height, bool allowEquipmentEvaluation)
+        private bool TryMatchRule(HeelsRule rule, int ruleIndex, RuleEvaluationContext context)
         {
             if (!rule.IsActive)
                 return false;
@@ -12440,23 +12630,20 @@ namespace HeelsDesignLinker
             // 使用新的条件系统（多条件组）
             // 注意：即使 ConditionGroups 为空列表，也使用新系统（空列表代表无条件，总是匹配）
             if (rule.ConditionGroups != null)
-            {
-                var context = BuildRuleEvaluationContext(height, allowEquipmentEvaluation);
                 return EvaluateConditionGroups(rule.ConditionGroups, context);
-            }
             
             // 向后兼容：如果有旧的单个 ConditionGroup（迁移时使用）
             if (rule.ConditionGroup != null)
-            {
-                var context = BuildRuleEvaluationContext(height, allowEquipmentEvaluation);
                 return rule.ConditionGroup.Evaluate(context);
-            }
 
             // 向后兼容：如果没有 ConditionGroup，使用旧的高度比较逻辑
-            return RuleMatchesHeightCondition(rule, height);
+            return RuleMatchesHeightCondition(rule, context.CurrentHeight);
         }
 
-        private RuleEvaluationContext BuildRuleEvaluationContext(float height, bool allowEquipmentEvaluation)
+        private RuleEvaluationContext BuildRuleEvaluationContext(
+            float height,
+            bool allowEquipmentEvaluation,
+            RenderedEquipmentSnapshot renderedEquipment)
         {
             var localPlayer = ObjectTable?.LocalPlayer;
             string? characterName = null;
@@ -12478,7 +12665,7 @@ namespace HeelsDesignLinker
                 CurrentHeight = height,
                 CharacterName = characterName,
                 LocalPlayer = localPlayer,
-                RenderedEquipment = RenderedEquipmentSnapshot.Capture(localPlayer),
+                RenderedEquipment = renderedEquipment,
                 AllowEquipmentEvaluation = allowEquipmentEvaluation,
             };
         }
@@ -12729,7 +12916,11 @@ namespace HeelsDesignLinker
             };
         }
 
-        private void SaveConfig() => PluginInterface.SavePluginConfig(Configuration);
+        private void SaveConfig()
+        {
+            PluginInterface.SavePluginConfig(Configuration);
+            RebuildConfigUsageCache();
+        }
 
         public void Dispose()
         {

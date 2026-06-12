@@ -2162,24 +2162,15 @@ internal sealed class PenumbraInterop
         out PenumbraIpcEc result,
         out string error)
     {
-        result = PenumbraIpcEc.UnknownError;
-        error = "";
-
-        var (source, lockKey) = GetTempLayerParams(layer);
-        var priority = ResolveTemporaryApplyPriority(
+        // 仅切换 enabled 时须合并 Collection 快照与同 key 临时层选项，不可传空 settings（会重置 Mod 选项组）。
+        return TryApplyTemporaryModConfigurationPlayer(
             playerObjectIndex,
             collectionName,
             modDirectory,
-            lockKey);
-        return TrySetTemporaryModSettingsPlayer(
-            playerObjectIndex,
-            modDirectory,
-            forceInherit: false,
             enabled,
-            priority,
-            new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase),
-            source,
-            lockKey,
+            new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase),
+            mergeExistingTemporaryGroups: true,
+            layer,
             out result,
             out error);
     }

@@ -17,9 +17,9 @@ internal sealed class RenderedEquipmentSnapshot
         Slots = slots;
     }
 
-    public static RenderedEquipmentSnapshot Capture(IPlayerCharacter? localPlayer)
+    public static RenderedEquipmentSnapshot Capture(IPlayerCharacter? localPlayer, bool includeModelPaths = false)
     {
-        if (!DrawObjectEquipmentReader.TryReadLocalPlayerSlots(localPlayer, out var slots, out _))
+        if (!DrawObjectEquipmentReader.TryReadLocalPlayerSlots(localPlayer, out var slots, out _, includeModelPaths))
             return Unavailable;
 
         return new RenderedEquipmentSnapshot(true, slots);

@@ -20,11 +20,10 @@ internal sealed class AppearanceChangeTracker
     }
 
     /// <param name="modelIdsChanged">是否为真实 ModelId 变化（非首次初始化）。</param>
-    public unsafe bool CheckChanged(IPlayerCharacter? localPlayer, out bool modelIdsChanged)
+    public bool CheckChanged(RenderedEquipmentSnapshot snapshot, IPlayerCharacter? localPlayer, out bool modelIdsChanged)
     {
         modelIdsChanged = false;
 
-        var snapshot = RenderedEquipmentSnapshot.Capture(localPlayer);
         if (snapshot.IsAvailable)
             return CompareRendered(snapshot.GetModelIdsInSlotOrder(), out modelIdsChanged);
 
