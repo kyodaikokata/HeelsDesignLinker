@@ -4,10 +4,25 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.24";
+        public const string CurrentVersion = "1.4.2.25";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.25",
+                "2026-06-10",
+                [
+                    "修复插件重载后 Moodles 不重新 apply：不再恢复 stableTrackingSignature 阻塞稳定计时；重载/启停后强制清 Moodles 去重并补 apply",
+                    "修复多次试穿后 Penumbra 覆写预览：脚槽 ModelId 变化且未达规则目标时暂停外观 apply；SimpleHeels TempOffset 试穿期间暂停外观 apply",
+                    "规则匹配：DrawObject 脚槽未穿鞋时忽略 TempOffset 宽限高度，避免取消试穿后仍按高跟高度命中规则",
+                    "规则匹配缓存增加脚槽 ModelId / 匹配高度校验，避免试穿切换后复用错误命中集",
+                ],
+                [
+                    "Fix Moodles not re-applying after plugin reload: stop restoring stableTrackingSignature; force-clear Moodle dedup on reload/re-enable",
+                    "Fix Penumbra overwriting preview after repeated try-ons: pause appearance apply while feet slot changes without targets met; pause during SimpleHeels TempOffset try-on",
+                    "Rule matching: ignore TempOffset grace height when DrawObject feet slot is empty",
+                    "Rule-match cache also tracks feet ModelId and matching height",
+                ]),
             new(
                 "1.4.2.24",
                 "2026-06-10",

@@ -978,6 +978,8 @@ namespace HeelsDesignLinker
         private int lastRuleMatchConfigRevision = -1;
         private bool lastRuleMatchAllowEquipment;
         private bool lastRuleMatchSfwMode;
+        private ushort lastRuleMatchFeetModelId = ushort.MaxValue;
+        private float lastRuleMatchHeightUsed = float.NaN;
 
         /// <summary>登录保护最短时长（与主手锚点并行），期间不匹配、不 apply。</summary>
         private static readonly TimeSpan LoginProtectionMinDuration = TimeSpan.FromSeconds(0.35);
@@ -998,6 +1000,9 @@ namespace HeelsDesignLinker
         private bool isLoginProtectionActive;
         /// <summary>登录/中途启用保护结束后，须强制完整 apply 规则一次（其它插件可能在预热期重置临时状态）。</summary>
         private bool pendingPostStartupProtectionApply;
+        /// <summary>SimpleHeels 试穿(TempOffset)结束后须补 apply 一次。</summary>
+        private bool pendingPostTryOnApply;
+        private bool _wasSimpleHeelsTryOnActive;
         private DateTime? localPlayerStableSinceUtc;
         private DateTime? appearancePopulatedSinceUtc;
         private uint lastTrackedMainHandItemId;
@@ -1267,6 +1272,8 @@ namespace HeelsDesignLinker
 
             Localization.SetLanguagePreference(Configuration.UiLanguage);
             RestoreShutdownApplySnapshot();
+            if (ClientState.IsLoggedIn)
+                pendingPostStartupProtectionApply = true;
             
             // 确保至少有一个规则集
             if (Configuration.RuleSets.Count == 0)
@@ -2123,6 +2130,81 @@ namespace HeelsDesignLinker
             lastApplyUtc = DateTime.MinValue;
         }
 
+        private static bool IsSimpleHeelsTryOnActive(bool useSimpleHeels, bool hasTempOffset) =>
+            useSimpleHeels && hasTempOffset;
+
+        private bool AppliedRulesIncludeAppearanceActions(IReadOnlyList<HeelsRule> rules)
+        {
+            foreach (var rule in rules)
+            {
+                foreach (var action in EnumerateRuleActionsForApply(rule))
+                {
+                    if (action.Type is ActionType.Glamourer or ActionType.Penumbra)
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool WouldApplyAppearanceForCycle(
+            IReadOnlyList<HeelsRule>? appliedRules,
+            bool includeBaseline,
+            bool includeSfwMode)
+        {
+            if (appliedRules is { Count: > 0 } && AppliedRulesIncludeAppearanceActions(appliedRules))
+                return true;
+
+            if (includeSfwMode && Configuration.SfwModeActive)
+                return true;
+
+            return includeBaseline
+                   && TryGetActiveRuleSet(out var ruleSet)
+                   && ruleSet.UseBaselineActions
+                   && IsBaselineApplyAllowed();
+        }
+
+        private bool TryDeferAppearanceApplyForSimpleHeelsTryOn(
+            bool useSimpleHeels,
+            IReadOnlyList<HeelsRule>? appliedRules,
+            bool includeBaseline,
+            bool includeSfwMode,
+            out string status)
+        {
+            status = "";
+            if (!IsSimpleHeelsTryOnActive(useSimpleHeels, currentHeelsHasTempOffset))
+                return false;
+
+            if (!WouldApplyAppearanceForCycle(appliedRules, includeBaseline, includeSfwMode))
+                return false;
+
+            status = Localization.AppearanceApplyPausedSimpleHeelsTryOn;
+            return true;
+        }
+
+        /// <summary>脚槽 ModelId 刚变化且规则外观目标未达标 → 试穿/预览中，勿 apply 覆盖。</summary>
+        private bool TryDeferAppearanceApplyForActivePreview(
+            IReadOnlyList<HeelsRule> appliedRules,
+            IPlayerCharacter? localPlayer,
+            bool appearanceModelIdsChanged,
+            bool includeBaseline,
+            bool includeSfwMode,
+            out string status)
+        {
+            status = "";
+            if (!WouldApplyAppearanceForCycle(appliedRules, includeBaseline, includeSfwMode))
+                return false;
+
+            if (!appearanceModelIdsChanged)
+                return false;
+
+            if (AreAllMatchedAppearanceActionsSatisfied(appliedRules, localPlayer))
+                return false;
+
+            status = Localization.AppearanceApplyPausedActivePreview;
+            return true;
+        }
+
         private void ClearAppearanceApplyFingerprint()
         {
             _lastAppliedAppearanceFingerprintKey = null;
@@ -2365,7 +2447,8 @@ namespace HeelsDesignLinker
             bool matchingHeightChanged,
             bool appearanceChanged,
             bool allowEquipmentEvaluation,
-            RenderedEquipmentSnapshot renderedSnapshot)
+            RenderedEquipmentSnapshot renderedSnapshot,
+            float ruleMatchingHeight)
         {
             if (!renderedSnapshot.IsAvailable)
                 return false;
@@ -2379,7 +2462,18 @@ namespace HeelsDesignLinker
             if (Configuration.SfwModeActive != lastRuleMatchSfwMode)
                 return false;
 
-            return configUsageCacheRevision == lastRuleMatchConfigRevision;
+            if (configUsageCacheRevision != lastRuleMatchConfigRevision)
+                return false;
+
+            var feetModelId = renderedSnapshot.TryGetRenderedModelId(EquipSlot.Feet) ?? 0;
+            if (feetModelId != lastRuleMatchFeetModelId)
+                return false;
+
+            if (float.IsNaN(lastRuleMatchHeightUsed)
+                || MathF.Abs(ruleMatchingHeight - lastRuleMatchHeightUsed) > MathF.Pow(10f, -Math.Clamp(Configuration.DecimalPrecision, 0, 5)))
+                return false;
+
+            return true;
         }
 
         private static string BuildMatchedSetSignature(List<int> appliedIndices)
@@ -2657,6 +2751,19 @@ namespace HeelsDesignLinker
             ClearAppearanceApplyFingerprint();
             ClearPenumbraTemporaryOverrides(forceRemove: true);
             ClearPenumbraApplyTracking();
+            ClearRuleMoodleApplyDedupKeys();
+            lastAppliedHonorificJson = "";
+            lastAppliedMoodleKey = "";
+            ruleMoodlesAllowedAfterUtc = null;
+            lastApplyUtc = DateTime.MinValue;
+        }
+
+        /// <summary>试穿结束后首轮规则 apply：清指纹/去重，让规则重新写入。</summary>
+        private void PreparePostTryOnReapply()
+        {
+            ClearAppearanceApplyFingerprint();
+            ClearPenumbraApplyTracking();
+            ClearRuleMoodleApplyDedupKeys();
             lastAppliedHonorificJson = "";
             lastAppliedMoodleKey = "";
             ruleMoodlesAllowedAfterUtc = null;
@@ -2754,6 +2861,8 @@ namespace HeelsDesignLinker
             lastRuleMatchingHeight = float.NaN;
             lastHeelsIpcRefreshUtc = DateTime.MinValue;
             lastRuleMatchConfigRevision = -1;
+            lastRuleMatchFeetModelId = ushort.MaxValue;
+            lastRuleMatchHeightUsed = float.NaN;
             lastTempOffsetSeenUtc = null;
             lastKnownActualHeelsHeight = 0f;
             _appearanceChangeTracker.Reset();
@@ -2993,7 +3102,10 @@ namespace HeelsDesignLinker
             }
 
             if (stableTrackingSignature != null && matchedSignature == stableTrackingSignature)
+            {
+                ruleMatchStableSinceUtc ??= DateTime.UtcNow;
                 return;
+            }
 
             stableTrackingSignature = matchedSignature;
             stableTrackingRuleIndex = hasMatch ? currentMatchedRuleIndex : -1;
@@ -3318,7 +3430,7 @@ namespace HeelsDesignLinker
                 isLoginProtectionActive = true;
                 ResetApplyState();
                 RestoreShutdownApplySnapshot();
-                // 插件在游戏内中途启用：立即重检依赖，避免等 2s 间隔或开面板后才 apply
+                pendingPostStartupProtectionApply = true;
                 RefreshDependencies(force: true);
             }
 
@@ -3371,9 +3483,20 @@ namespace HeelsDesignLinker
                 forceRefresh: appearanceChanged || float.IsNaN(lastRuleMatchingHeight));
             _penumbraInterop.ReadIncludingTemporarySettings = Configuration.UsePenumbraTemporaryApply;
 
-            var matchingHeightChanged = HasRuleMatchingHeightChanged(currentHeelsHeight);
+            var tryOnActive = useSimpleHeels && currentHeelsHasTempOffset;
+            if (_wasSimpleHeelsTryOnActive && !tryOnActive)
+                pendingPostTryOnApply = true;
+            _wasSimpleHeelsTryOnActive = tryOnActive;
+
+            var ruleMatchingHeight = SelectHeightForRuleMatching(
+                currentHeelsDefaultHeight,
+                currentHeelsActualHeight,
+                currentHeelsHasTempOffset,
+                frameRenderedSnapshot);
+
+            var matchingHeightChanged = HasRuleMatchingHeightChanged(ruleMatchingHeight);
             if (matchingHeightChanged)
-                lastRuleMatchingHeight = currentHeelsHeight;
+                lastRuleMatchingHeight = ruleMatchingHeight;
 
             if (matchingHeightChanged || (appearanceChanged && !appearanceTransformActive))
             {
@@ -3397,16 +3520,19 @@ namespace HeelsDesignLinker
                     matchingHeightChanged,
                     appearanceChanged,
                     allowEquipmentEvaluation,
-                    frameRenderedSnapshot))
+                    frameRenderedSnapshot,
+                    ruleMatchingHeight))
             {
                 var ruleEvaluationContext = BuildRuleEvaluationContext(
-                    currentHeelsHeight,
+                    ruleMatchingHeight,
                     allowEquipmentEvaluation,
                     frameRenderedSnapshot);
                 CollectAppliedRuleIndices(activeRules, ruleEvaluationContext, currentAppliedRuleIndices);
                 lastRuleMatchAllowEquipment = allowEquipmentEvaluation;
                 lastRuleMatchSfwMode = Configuration.SfwModeActive;
                 lastRuleMatchConfigRevision = configUsageCacheRevision;
+                lastRuleMatchFeetModelId = frameRenderedSnapshot.TryGetRenderedModelId(EquipSlot.Feet) ?? 0;
+                lastRuleMatchHeightUsed = ruleMatchingHeight;
             }
 
             string? frameAppearanceFingerprint = null;
@@ -3436,7 +3562,10 @@ namespace HeelsDesignLinker
                     return;
 
                 if (pendingPostStartupProtectionApply)
-                    pendingPostStartupProtectionApply = false;
+                    PreparePostStartupProtectionReapply();
+
+                if (pendingPostTryOnApply)
+                    PreparePostTryOnReapply();
 
                 if (pendingSoundMixerReconnectReapply)
                     pendingSoundMixerReconnectReapply = false;
@@ -3477,6 +3606,8 @@ namespace HeelsDesignLinker
                     localPlayer,
                     frameRenderedSnapshot,
                     ref frameAppearanceFingerprint);
+                pendingPostStartupProtectionApply = false;
+                pendingPostTryOnApply = false;
                 return;
             }
 
@@ -3487,6 +3618,7 @@ namespace HeelsDesignLinker
             }
 
             if (!pendingPostStartupProtectionApply
+                && !pendingPostTryOnApply
                 && !pendingSoundMixerReconnectReapply
                 && !IsApplyCooldownElapsed(out var cooldownStatus))
             {
@@ -3506,6 +3638,9 @@ namespace HeelsDesignLinker
             if (pendingPostStartupProtectionApply)
                 PreparePostStartupProtectionReapply();
 
+            if (pendingPostTryOnApply)
+                PreparePostTryOnReapply();
+
             var appliedRules = new List<HeelsRule>(currentAppliedRuleIndices.Count);
             foreach (var appliedIndex in currentAppliedRuleIndices)
                 appliedRules.Add(activeRules[appliedIndex]);
@@ -3514,6 +3649,7 @@ namespace HeelsDesignLinker
             var matchedSignatureChanged = matchedSignature != lastMatchedSetSignature;
 
             if (!pendingPostStartupProtectionApply
+                && !pendingPostTryOnApply
                 && !pendingSoundMixerReconnectReapply
                 && TrySkipAppearanceApplyBecauseUnchanged(
                     localPlayer,
@@ -3522,7 +3658,8 @@ namespace HeelsDesignLinker
                     ref frameAppearanceFingerprint,
                     out var matchSkipStatus))
             {
-                if (matchedSignatureChanged)
+                if (matchedSignatureChanged
+                    && matchSkipStatus == Localization.AppearanceApplySkippedTargetMet)
                     SyncMatchedRuleSetMetadata(activeRules, currentAppliedRuleIndices, matchedSignature, localPlayer);
                 RecordNonAppearanceApplyFromSkip(
                     appliedRules,
@@ -3534,6 +3671,31 @@ namespace HeelsDesignLinker
                     localPlayer,
                     frameRenderedSnapshot,
                     ref frameAppearanceFingerprint);
+                pendingPostStartupProtectionApply = false;
+                pendingPostTryOnApply = false;
+                return;
+            }
+
+            if (TryDeferAppearanceApplyForSimpleHeelsTryOn(
+                    useSimpleHeels,
+                    appliedRules,
+                    includeBaseline: true,
+                    includeSfwMode: true,
+                    out var tryOnPauseStatus)
+                || TryDeferAppearanceApplyForActivePreview(
+                    appliedRules,
+                    localPlayer,
+                    appearanceModelIdsChanged,
+                    includeBaseline: true,
+                    includeSfwMode: true,
+                    out tryOnPauseStatus))
+            {
+                RecordNonAppearanceApplyFromSkip(
+                    appliedRules,
+                    localPlayer,
+                    pendingSoundMixerReconnectReapply);
+                pendingSoundMixerReconnectReapply = false;
+                applyGateStatus = tryOnPauseStatus;
                 return;
             }
 
@@ -3604,6 +3766,7 @@ namespace HeelsDesignLinker
                 frameRenderedSnapshot,
                 ref frameAppearanceFingerprint);
             pendingPostStartupProtectionApply = false;
+            pendingPostTryOnApply = false;
             pendingSoundMixerReconnectReapply = false;
             }
             finally
@@ -5046,6 +5209,23 @@ namespace HeelsDesignLinker
             return hasTempOffset ? actualHeight : defaultHeight;
         }
 
+        /// <summary>
+        /// 规则匹配用高度：TempOffset 存在但 DrawObject 脚槽未穿鞋（试穿取消后的 IPC 宽限期）时仍按光脚高度匹配。
+        /// </summary>
+        private float SelectHeightForRuleMatching(
+            float defaultHeight,
+            float actualHeight,
+            bool hasTempOffset,
+            RenderedEquipmentSnapshot renderedSnapshot)
+        {
+            if (hasTempOffset
+                && renderedSnapshot.IsAvailable
+                && renderedSnapshot.TryGetHasEquipment(EquipSlot.Feet) != true)
+                return defaultHeight;
+
+            return SelectHeelsHeightForMode(defaultHeight, actualHeight, hasTempOffset);
+        }
+
         private bool HasRuleMatchingHeightChanged(float height)
         {
             if (float.IsNaN(lastRuleMatchingHeight))
@@ -5658,7 +5838,6 @@ namespace HeelsDesignLinker
 
             var signature = Configuration.LastShutdownMatchedRuleSignature ?? "";
             lastMatchedSetSignature = signature;
-            stableTrackingSignature = signature;
             lastAppliedHonorificJson = Configuration.LastShutdownLastAppliedHonorificJson ?? "";
             lastAppliedActionKeys.Clear();
             foreach (var key in Configuration.LastShutdownAppliedActionKeys ?? [])

@@ -918,6 +918,12 @@ namespace HeelsDesignLinker
         public static string AppearanceApplySkippedTargetMet => IsChine
             ? "DrawObject 已符合规则目标，跳过 apply"
             : "DrawObject already matches rule targets; apply skipped";
+        public static string AppearanceApplyPausedSimpleHeelsTryOn => IsChine
+            ? "SimpleHeels 试穿中，暂停外观 apply"
+            : "SimpleHeels try-on active; appearance apply paused";
+        public static string AppearanceApplyPausedActivePreview => IsChine
+            ? "脚槽外观变化中且未达规则目标，暂停外观 apply（试穿/预览）"
+            : "Feet appearance changing and targets not met; appearance apply paused (preview)";
         public static string DebugAppearanceTransformId => IsChine ? "TransformationId" : "TransformationId";
         public static string DebugAppearanceFingerprint => IsChine ? "外观指纹" : "Appearance fingerprint";
         public static string DebugAppearanceTransformInactive => IsChine ? "未变身" : "Not transformed";
