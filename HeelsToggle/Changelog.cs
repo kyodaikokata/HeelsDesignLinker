@@ -4,10 +4,21 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.23";
+        public const string CurrentVersion = "1.4.2.24";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.24",
+                "2026-06-10",
+                [
+                    "装备条件与外观变化检测统一仅读 DrawObject 渲染槽：移除背包/DrawData 回退，Glamourer/Penumbra 预览投影以画面为准",
+                    "DrawObject 不可读时不复用上帧规则匹配结果，避免与实际渲染脱节",
+                ],
+                [
+                    "Equipment conditions and appearance change detection use DrawObject render slots only; no inventory/DrawData fallback",
+                    "Do not reuse cached rule match when DrawObject snapshot is unavailable",
+                ]),
             new(
                 "1.4.2.23",
                 "2026-06-10",

@@ -29,18 +29,15 @@ internal sealed class RenderedEquipmentSnapshot
         slotInfo.ModelId != 0 && !EmperorsNewItems.IsEmperorsNewByModelId(slotInfo.ModelId);
 
     /// <summary>
-    /// 槽位是否有可见装备。主/副手走背包；其余槽位需 DrawObject 可读。
+    /// 槽位是否有可见装备（仅 DrawObject 渲染结果；不读背包/DrawData/Glamourer 状态）。
     /// 无法确认时返回 null（fail-closed）。
     /// </summary>
     public bool? TryGetHasEquipment(EquipSlot slot)
     {
-        if (EquipSlotRenderedMapping.UsesInventoryForEquipmentCheck(slot))
-            return InventoryEquipmentReader.TryGetHasRealEquipment(slot);
-
-        if (!IsAvailable)
+        if (!EquipSlotRenderedMapping.TryToRendered(slot, out var renderedSlot))
             return null;
 
-        if (!EquipSlotRenderedMapping.TryToRendered(slot, out var renderedSlot))
+        if (!IsAvailable)
             return null;
 
         foreach (var slotInfo in Slots)
@@ -54,12 +51,9 @@ internal sealed class RenderedEquipmentSnapshot
         return null;
     }
 
-    /// <summary>读取 DrawObject 槽位 ModelId；主/副手或快照不可用时返回 null。</summary>
+    /// <summary>读取 DrawObject 槽位 ModelId；快照不可用时返回 null。</summary>
     public ushort? TryGetRenderedModelId(EquipSlot slot)
     {
-        if (EquipSlotRenderedMapping.UsesInventoryForEquipmentCheck(slot))
-            return null;
-
         if (!IsAvailable || !EquipSlotRenderedMapping.TryToRendered(slot, out var renderedSlot))
             return null;
 

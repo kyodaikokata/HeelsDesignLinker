@@ -1,33 +1,31 @@
-using Dalamud.Game.ClientState.Objects.SubKinds;
-using FFXIVClientStructs.FFXIV.Client.Game.Character;
-
 namespace HeelsDesignLinker;
 
 /// <summary>
-/// 检测本地玩家外观 ModelId 变化：优先 DrawObject Human，不可用时回退 DrawData。
+/// 检测本地玩家外观 ModelId 变化：仅比较 DrawObject Human 渲染槽（与装备条件同源）。
 /// </summary>
 internal sealed class AppearanceChangeTracker
 {
     private readonly ushort[] _lastRenderedModelIds = new ushort[EquipSlotCategoryMapping.All.Count];
-    private readonly ushort[] _lastDrawDataModelIds = new ushort[10];
     private bool _initialized;
 
     public void Reset()
     {
         _initialized = false;
         Array.Clear(_lastRenderedModelIds, 0, _lastRenderedModelIds.Length);
-        Array.Clear(_lastDrawDataModelIds, 0, _lastDrawDataModelIds.Length);
     }
 
     /// <param name="modelIdsChanged">是否为真实 ModelId 变化（非首次初始化）。</param>
-    public bool CheckChanged(RenderedEquipmentSnapshot snapshot, IPlayerCharacter? localPlayer, out bool modelIdsChanged)
+    public bool CheckChanged(RenderedEquipmentSnapshot snapshot, out bool modelIdsChanged)
     {
         modelIdsChanged = false;
 
-        if (snapshot.IsAvailable)
-            return CompareRendered(snapshot.GetModelIdsInSlotOrder(), out modelIdsChanged);
+        if (!snapshot.IsAvailable)
+        {
+            _initialized = false;
+            return false;
+        }
 
-        return CompareDrawData(localPlayer, out modelIdsChanged);
+        return CompareRendered(snapshot.GetModelIdsInSlotOrder(), out modelIdsChanged);
     }
 
     private bool CompareRendered(IReadOnlyList<ushort> modelIds, out bool modelIdsChanged)
@@ -50,48 +48,6 @@ internal sealed class AppearanceChangeTracker
             changed = true;
             modelIdsChanged = true;
             _lastRenderedModelIds[i] = modelIds[i];
-        }
-
-        if (!_initialized)
-            _initialized = true;
-
-        return changed;
-    }
-
-    private unsafe bool CompareDrawData(IPlayerCharacter? localPlayer, out bool modelIdsChanged)
-    {
-        modelIdsChanged = false;
-
-        if (localPlayer == null || !localPlayer.IsValid())
-        {
-            _initialized = false;
-            return false;
-        }
-
-        var character = (Character*)localPlayer.Address;
-        if (character == null)
-        {
-            _initialized = false;
-            return false;
-        }
-
-        var changed = false;
-
-        for (var i = 0; i < 10; i++)
-        {
-            var modelId = character->DrawData.EquipmentModelIds[i].Id;
-            if (!_initialized)
-            {
-                _lastDrawDataModelIds[i] = modelId;
-                continue;
-            }
-
-            if (_lastDrawDataModelIds[i] == modelId)
-                continue;
-
-            changed = true;
-            modelIdsChanged = true;
-            _lastDrawDataModelIds[i] = modelId;
         }
 
         if (!_initialized)

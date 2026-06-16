@@ -367,7 +367,7 @@ namespace HeelsDesignLinker
         public string? CharacterName { get; set; }
         public IPlayerCharacter? LocalPlayer { get; set; }
         internal RenderedEquipmentSnapshot RenderedEquipment { get; set; } = RenderedEquipmentSnapshot.Unavailable;
-        /// <summary>登录预热完成前为 false，禁止装备条件评估。</summary>
+        /// <summary>登录预热完成前为 false，禁止装备条件评估（评估源为 DrawObject 渲染槽）。</summary>
         public bool AllowEquipmentEvaluation { get; set; }
     }
     
@@ -2364,8 +2364,12 @@ namespace HeelsDesignLinker
         private bool CanReuseRuleMatchResults(
             bool matchingHeightChanged,
             bool appearanceChanged,
-            bool allowEquipmentEvaluation)
+            bool allowEquipmentEvaluation,
+            RenderedEquipmentSnapshot renderedSnapshot)
         {
+            if (!renderedSnapshot.IsAvailable)
+                return false;
+
             if (matchingHeightChanged || appearanceChanged)
                 return false;
 
@@ -3341,7 +3345,6 @@ namespace HeelsDesignLinker
             var frameRenderedSnapshot = RenderedEquipmentSnapshot.Capture(localPlayerForGate);
             var appearanceChanged = _appearanceChangeTracker.CheckChanged(
                 frameRenderedSnapshot,
-                localPlayerForGate,
                 out var appearanceModelIdsChanged);
 
             if (appearanceModelIdsChanged && IsLoginProtectionActive())
@@ -3390,7 +3393,11 @@ namespace HeelsDesignLinker
 
             var activeRules = ActiveRules;
             var allowEquipmentEvaluation = !appearanceTransformActive;
-            if (!CanReuseRuleMatchResults(matchingHeightChanged, appearanceChanged, allowEquipmentEvaluation))
+            if (!CanReuseRuleMatchResults(
+                    matchingHeightChanged,
+                    appearanceChanged,
+                    allowEquipmentEvaluation,
+                    frameRenderedSnapshot))
             {
                 var ruleEvaluationContext = BuildRuleEvaluationContext(
                     currentHeelsHeight,
