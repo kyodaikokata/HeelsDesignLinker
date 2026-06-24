@@ -2918,7 +2918,8 @@ internal sealed class PenumbraInterop
             error = $"读取 Penumbra Collection 快照失败: {ex.Message}";
         }
 
-        return settingsByGroup.Count > 0;
+        // Mod 可能仅有启用/禁用、无任何 Option 组；空快照仍表示已在 Collection 中找到该 Mod。
+        return false;
     }
 
     private static bool TryFindModSettingsInAllModsSnapshot(
@@ -3153,6 +3154,11 @@ internal sealed class PenumbraInterop
 
         if (settings.Count == 0)
         {
+            // 仅切换 Mod 启用/禁用、且 merge 后无任何选项组：空 settings 对 Penumbra 临时层合法。
+            // 若 merge 含 Collection 选项但校验后全被滤掉，仍拒绝，避免向 IPC 传空字典重置选项（见 1.4.2.20）。
+            if (requiredOverrideGroups.Count == 0 && optionGroupOverrides.Count == 0)
+                return true;
+
             error = "No valid Penumbra option overrides (check option group / option names)";
             return false;
         }

@@ -4,10 +4,21 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.25";
+        public const string CurrentVersion = "1.4.2.26";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.26",
+                "2026-06-10",
+                [
+                    "修复 SFW/临时 Penumbra「仅禁用 Mod」对无 Option 组（纯开关）模组无效：merge 后无选项组时允许空 settings 写入临时层",
+                    "保留有 Option 模组的安全校验：merge 含 Collection 选项但校验后为空时仍拒绝 apply，避免空字典重置选项组",
+                ],
+                [
+                    "Fix SFW/temp Penumbra DisableMod for enable-only mods (no option groups): allow empty settings when merge yields no groups",
+                    "Keep safety for mods with options: still reject when merge had groups but sanitization produced none, avoiding empty-dict option reset",
+                ]),
             new(
                 "1.4.2.25",
                 "2026-06-10",
