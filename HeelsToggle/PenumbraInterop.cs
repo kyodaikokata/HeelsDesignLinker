@@ -59,6 +59,8 @@ internal sealed class PenumbraInterop
     private const string QueryTemporaryModSettingsPlayerGate = "Penumbra.QueryTemporaryModSettingsPlayer.V5";
     private const string GetModPathGate = "Penumbra.GetModPath.V5";
     private const string OpenMainWindowGate = "Penumbra.OpenMainWindow.V5";
+    private const string GetEnabledStateGate = "Penumbra.GetEnabledState";
+    private const string EnabledChangeGate = "Penumbra.EnabledChange";
 
     /// <summary>与 Penumbra.Api.Enums.TabType 数值一致。</summary>
     private enum PenumbraMainTabType
@@ -135,6 +137,7 @@ internal sealed class PenumbraInterop
     private string? _penumbraUiSelectedModDirectory;
     private Action<string>? _penumbraUiSelectedModHandler;
     private readonly List<(string Gate, Action<string> Handler)> _penumbraUiSelectedModSubscriptions = [];
+    private Action<bool>? _enabledChangeHandler;
 
     public PenumbraInterop(IDalamudPluginInterface pluginInterface)
     {
@@ -158,6 +161,20 @@ internal sealed class PenumbraInterop
 
         _penumbraUiSelectedModSubscriptions.Clear();
         _penumbraUiSelectedModHandler = null;
+
+        if (_enabledChangeHandler != null)
+        {
+            try
+            {
+                _pluginInterface.GetIpcSubscriber<bool, object>(EnabledChangeGate).Unsubscribe(_enabledChangeHandler);
+            }
+            catch
+            {
+                // Penumbra 可能已卸载
+            }
+
+            _enabledChangeHandler = null;
+        }
     }
 
     /// <summary>订阅 Penumbra UI 事件以跟踪用户在 Penumbra 窗口中选中的 Mod 目录名。</summary>
@@ -256,6 +273,39 @@ internal sealed class PenumbraInterop
     {
         return pluginInterface.InstalledPlugins.Any(p =>
             p.InternalName == "Penumbra" && p.IsLoaded);
+    }
+
+    /// <summary>读取 Penumbra 全局「Enable Mods」状态（等同设置页勾选框；IPC：<c>Penumbra.GetEnabledState</c>）。</summary>
+    public bool? TryGetModdingEnabled()
+    {
+        if (!IsPenumbraLoaded(_pluginInterface))
+            return null;
+
+        try
+        {
+            return _pluginInterface.GetIpcSubscriber<bool>(GetEnabledStateGate).InvokeFunc();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>订阅 Penumbra 全局启用状态变化（IPC：<c>Penumbra.EnabledChange</c>）。</summary>
+    public void EnsureEnabledChangeSubscription(Action<bool> onChanged)
+    {
+        if (_enabledChangeHandler != null)
+            return;
+
+        _enabledChangeHandler = onChanged;
+        try
+        {
+            _pluginInterface.GetIpcSubscriber<bool, object>(EnabledChangeGate).Subscribe(onChanged);
+        }
+        catch
+        {
+            _enabledChangeHandler = null;
+        }
     }
 
     public bool IsIpcAvailable()

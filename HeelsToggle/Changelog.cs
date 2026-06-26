@@ -4,10 +4,23 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.28";
+        public const string CurrentVersion = "1.4.2.29";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.29",
+                "2026-06-10",
+                [
+                    "修正 Penumbra DTR 切换：改为执行 /penumbra toggle（Penumbra 全局 Enable Mods），不再切换单个 Mod",
+                    "状态显示读取 Penumbra.GetEnabledState；Penumbra.Api 无 SetEnabled IPC，写入通过 /penumbra toggle 命令",
+                    "移除「Penumbra 切换」标签页与 Mod 行动组配置；设置页仅保留 DTR 按钮显示开关",
+                ],
+                [
+                    "Fix Penumbra DTR toggle: runs /penumbra toggle (global Enable Mods) instead of toggling individual mods",
+                    "Status from Penumbra.GetEnabledState; no SetEnabled IPC in Penumbra.Api — write path uses /penumbra toggle",
+                    "Remove Penumbra Toggle tab and mod action groups; settings only keep the DTR button visibility option",
+                ]),
             new(
                 "1.4.2.28",
                 "2026-06-10",

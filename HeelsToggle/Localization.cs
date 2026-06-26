@@ -41,8 +41,8 @@ namespace HeelsDesignLinker
         
         // 命令帮助
         public static string CommandHelp => IsChine 
-            ? "打开配置；/hdl sfw|nsfw 切换 SFW 临时层；/hdl toggle|pen 切换 Penumbra 直接写入" 
-            : "Open settings; /hdl sfw|nsfw toggles SFW temp layer; /hdl toggle|pen toggles direct Penumbra apply";
+            ? "打开配置；/hdl sfw|nsfw 切换 SFW 临时层；/hdl toggle|pen 执行 /penumbra toggle（全局 Enable Mods）" 
+            : "Open settings; /hdl sfw|nsfw toggles SFW temp layer; /hdl toggle|pen runs /penumbra toggle (global Enable Mods)";
         
         // 窗口标题
         public static string WindowTitle => $"{PluginName} v{Changelog.CurrentVersion}";
@@ -62,8 +62,8 @@ namespace HeelsDesignLinker
             : "Show DTR Penumbra toggle button";
 
         public static string ShowDtrPenumbraToggleBarTooltip => IsChine
-            ? "在屏幕顶部服务器信息栏显示「HDL Pen」按钮；点击一次性写入/还原 Penumbra Collection 设置，不参与规则匹配。"
-            : "Shows the \"HDL Pen\" button in the server info bar; click to apply/revert Penumbra collection settings once. Does not interact with rule matching.";
+            ? "在屏幕顶部服务器信息栏显示「HDL Pen」按钮；点击执行 /penumbra toggle，切换 Penumbra 全局 Enable Mods。"
+            : "Shows the \"HDL Pen\" button in the server info bar; click to run /penumbra toggle (Penumbra global Enable Mods).";
         
         public static string DtrBarTooltip => IsChine
             ? "Heels Design Linker：点击打开配置"
@@ -80,7 +80,6 @@ namespace HeelsDesignLinker
         // 标签页
         public static string TabRules => IsChine ? "规则" : "Rules";
         public static string TabSfwMode => IsChine ? "SFW 模式" : "SFW Mode";
-        public static string TabPenumbraToggle => IsChine ? "Penumbra 切换" : "Penumbra Toggle";
         public static string TabSettings => IsChine ? "设置" : "Settings";
 
         public static string SfwModeTabDescription => IsChine
@@ -154,19 +153,11 @@ namespace HeelsDesignLinker
             ? "点击切换 SFW / NSFW 模式（Penumbra 临时层）"
             : "Click to toggle SFW / NSFW mode (Penumbra temporary layer)";
 
-        public static string PenumbraToggleModeTabDescription => IsChine
-            ? "配置 DTR「HDL Pen」按钮切换时要写入 Penumbra Collection 的行动（Penumbra.TrySetMod，等同 /penumbra mod enable|disable）。仅在点击按钮时 apply，不参与规则匹配、dedup 或临时层。"
-            : "Configure actions applied to the Penumbra collection when toggling the DTR \"HDL Pen\" button (Penumbra.TrySetMod, same as /penumbra mod enable|disable). Applies only on click; does not interact with rule matching, dedup, or temp layers.";
-
-        public static string PenumbraToggleModeActionsEmpty => IsChine
-            ? "列表为空，请添加 Penumbra 行动组"
-            : "List is empty — add a Penumbra action group";
-
         public static string DtrPenumbraToggleBarActive => IsChine ? "Pen 开" : "Pen On";
         public static string DtrPenumbraToggleBarInactive => IsChine ? "Pen 关" : "Pen Off";
         public static string DtrPenumbraToggleBarTooltip => IsChine
-            ? "点击切换：按「Penumbra 切换」页行动列表永久写入/还原 Penumbra Collection"
-            : "Click to toggle: apply/revert Penumbra collection per the Penumbra Toggle tab action list";
+            ? "点击执行 /penumbra toggle，切换 Penumbra 全局 Enable Mods（状态读取自 Penumbra.GetEnabledState）"
+            : "Click to run /penumbra toggle (Penumbra global Enable Mods; state from Penumbra.GetEnabledState)";
 
         public static string TabDebug => IsChine ? "调试" : "Debug";
         public static string TabChangelog => IsChine ? "更新履历" : "Changelog";
