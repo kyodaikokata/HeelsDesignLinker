@@ -4,10 +4,32 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.26";
+        public const string CurrentVersion = "1.4.2.28";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.28",
+                "2026-06-10",
+                [
+                    "Penumbra 直接切换简化为独立功能：仅在 DTR/命令切换时一次性写入 Collection，不参与规则匹配、dedup、临时层或拦截规则 Penumbra 行动",
+                    "设置页新增「显示 DTR Penumbra 切换按钮」；与主状态栏显示独立",
+                ],
+                [
+                    "Penumbra direct toggle simplified: applies only on DTR/command toggle; no rule matching, dedup, temp layers, or rule Penumbra filtering",
+                    "Settings: new \"Show DTR Penumbra toggle button\" option, independent from main status bar",
+                ]),
+            new(
+                "1.4.2.27",
+                "2026-06-10",
+                [
+                    "新增 Penumbra 直接切换模式：DTR「HDL Pen」与「Penumbra 切换」标签页，通过 Penumbra.TrySetMod 永久写入 Collection（等同 /penumbra mod enable|disable）",
+                    "关闭直接切换时自动还原 Mod 启用/禁用子行动；/hdl toggle 或 /hdl pen 可切换",
+                ],
+                [
+                    "Add Penumbra direct toggle mode: DTR \"HDL Pen\" entry and Penumbra Toggle tab; applies via Penumbra.TrySetMod (same as /penumbra mod enable|disable)",
+                    "Disabling direct toggle reverts Enable/Disable Mod sub-actions; /hdl toggle or /hdl pen to toggle",
+                ]),
             new(
                 "1.4.2.26",
                 "2026-06-10",

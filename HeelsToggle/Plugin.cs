@@ -571,6 +571,9 @@ namespace HeelsDesignLinker
         /// <summary>在游戏顶部服务器信息栏（DTR）显示当前高度与匹配规则。</summary>
         public bool ShowDtrStatusBar { get; set; } = true;
 
+        /// <summary>在 DTR 显示 Penumbra 直接切换按钮（HDL Pen）。</summary>
+        public bool ShowDtrPenumbraToggleBar { get; set; } = true;
+
         /// <summary>SFW 模式是否激活（全局，高于规则 Penumbra 层）。</summary>
         public bool SfwModeActive { get; set; } = false;
 
@@ -580,6 +583,12 @@ namespace HeelsDesignLinker
 
         /// <summary>SFW 模式 Penumbra 行动组（与规则内 Penumbra 行动组同结构）。</summary>
         public List<PenumbraActionGroup> SfwModeActionGroups { get; set; } = new();
+
+        /// <summary>Penumbra 直接切换模式是否激活（永久写入 Collection，对应 /penumbra mod enable|disable）。</summary>
+        public bool PenumbraToggleModeActive { get; set; } = false;
+
+        /// <summary>Penumbra 直接切换模式的 Mod 行动组。</summary>
+        public List<PenumbraActionGroup> PenumbraToggleActionGroups { get; set; } = new();
 
         /// <summary>规则匹配使用的 SimpleHeels 高度来源。</summary>
         public SimpleHeelsHeightMode SimpleHeelsHeightMode { get; set; } = SimpleHeelsHeightMode.Default;
@@ -779,6 +788,8 @@ namespace HeelsDesignLinker
         private string lastDtrBarText = "";
         private IDtrBarEntry? dtrSfwBarEntry;
         private string lastDtrSfwBarText = "";
+        private IDtrBarEntry? dtrPenumbraToggleBarEntry;
+        private string lastDtrPenumbraToggleBarText = "";
 
         private readonly struct PenumbraApplyLayerConfig
         {
@@ -1028,12 +1039,15 @@ namespace HeelsDesignLinker
         private bool restoreDefaultsPending;
         private bool wasSettingsTabActive;
         private const string KoFiUrl = "https://ko-fi.com/kokatakyodai";
-        private const int ConfigSchemaVersion = 28;
+        private const int ConfigSchemaVersion = 30;
         private const int SfwGroupRuleIndexBase = -2;
+        private const int ToggleGroupRuleIndexBase = -200;
         private const int PenumbraSubHostRuleIndexBase = -100000;
         private const int PenumbraSubHostRuleIndexStride = 1000;
         private const int SfwPenumbraGroupsReorderRuleIndex = -50000;
+        private const int TogglePenumbraGroupsReorderRuleIndex = -50001;
         private const string DtrSfwBarEntryTitle = "HDL SFW";
+        private const string DtrPenumbraToggleBarEntryTitle = "HDL Pen";
         private int stableTrackingRuleIndex = -1;
         private DateTime? ruleMatchStableSinceUtc;
         private const float DefaultWindowWidth = 600f;
@@ -1259,6 +1273,14 @@ namespace HeelsDesignLinker
                 {
                     Configuration.DebugTabExpandedSections ??= new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
                 }
+                if (Configuration.Version < 29)
+                {
+                    Configuration.PenumbraToggleActionGroups ??= new List<PenumbraActionGroup>();
+                }
+                if (Configuration.Version < 30)
+                {
+                    // v30: ShowDtrPenumbraToggleBar 使用类型默认值 true
+                }
                 Configuration.Version = ConfigSchemaVersion;
                 PluginInterface.SavePluginConfig(Configuration);
             }
@@ -1295,6 +1317,8 @@ namespace HeelsDesignLinker
             
             RebuildConfigUsageCache();
             RefreshDependencies(force: true);
+            if (ClientState.IsLoggedIn && Configuration.PenumbraToggleModeActive)
+                ApplyPenumbraToggleActionsDirect();
             Framework.Update += OnFrameworkUpdate;
             ClientState.Login += OnLogin;
             ClientState.Logout += OnLogout;
@@ -1319,6 +1343,13 @@ namespace HeelsDesignLinker
             if (string.Equals(trimmedArgs, "nsfw", StringComparison.OrdinalIgnoreCase))
             {
                 SetSfwModeActive(false);
+                return;
+            }
+
+            if (string.Equals(trimmedArgs, "toggle", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(trimmedArgs, "pen", StringComparison.OrdinalIgnoreCase))
+            {
+                SetPenumbraToggleModeActive(!Configuration.PenumbraToggleModeActive);
                 return;
             }
 
@@ -1563,6 +1594,8 @@ namespace HeelsDesignLinker
 
         private static int ToSfwGroupRuleIndex(int groupIndex) => SfwGroupRuleIndexBase - groupIndex;
 
+        private static int ToToggleGroupRuleIndex(int groupIndex) => ToggleGroupRuleIndexBase - groupIndex;
+
         private static int ToPenumbraSubHostRuleIndex(int ruleIndex, int groupActionIndex) =>
             PenumbraSubHostRuleIndexBase - (ruleIndex * PenumbraSubHostRuleIndexStride + groupActionIndex);
 
@@ -1574,6 +1607,17 @@ namespace HeelsDesignLinker
 
             groupIndex = -(ruleIndex - SfwGroupRuleIndexBase);
             var groups = Configuration.SfwModeActionGroups ?? [];
+            return groupIndex >= 0 && groupIndex < groups.Count;
+        }
+
+        private bool TryParseToggleGroupRuleIndex(int ruleIndex, out int groupIndex)
+        {
+            groupIndex = -1;
+            if (ruleIndex > ToggleGroupRuleIndexBase)
+                return false;
+
+            groupIndex = -(ruleIndex - ToggleGroupRuleIndexBase);
+            var groups = Configuration.PenumbraToggleActionGroups ?? [];
             return groupIndex >= 0 && groupIndex < groups.Count;
         }
 
@@ -1750,6 +1794,17 @@ namespace HeelsDesignLinker
         {
             var result = new List<HeelsRuleAction>();
             foreach (var group in Configuration.SfwModeActionGroups ?? [])
+            {
+                MigratePenumbraGroupLegacySubActions(group);
+                result.AddRange(FlattenPenumbraGroup(group).Where(ActionUsesPenumbra));
+            }
+            return result;
+        }
+
+        private List<HeelsRuleAction> GetAllPenumbraToggleActions()
+        {
+            var result = new List<HeelsRuleAction>();
+            foreach (var group in Configuration.PenumbraToggleActionGroups ?? [])
             {
                 MigratePenumbraGroupLegacySubActions(group);
                 result.AddRange(FlattenPenumbraGroup(group).Where(ActionUsesPenumbra));
@@ -2717,6 +2772,8 @@ namespace HeelsDesignLinker
             ResetApplyState();
             _wasAppearanceTransformActive = false;
             RestoreShutdownApplySnapshot();
+            if (Configuration.PenumbraToggleModeActive)
+                ApplyPenumbraToggleActionsDirect();
         }
 
         private bool IsLoginProtectionActive()
@@ -4070,6 +4127,133 @@ namespace HeelsDesignLinker
 
             if (ApplySfwModePenumbraActions(ref appliedAnything))
                 configDirty = true;
+        }
+
+        private void SetPenumbraToggleModeActive(bool active)
+        {
+            if (Configuration.PenumbraToggleModeActive == active)
+                return;
+
+            if (active)
+                ApplyPenumbraToggleActionsDirect();
+            else
+                RevertPenumbraToggleModStatesOnDeactivate();
+
+            Configuration.PenumbraToggleModeActive = active;
+            SaveConfig();
+        }
+
+        /// <summary>一次性永久写入 Penumbra Collection（TrySetMod 等），不参与规则匹配/dedup/临时层。</summary>
+        private void ApplyPenumbraToggleActionsDirect()
+        {
+            if (!isPenumbraIpcReady)
+                return;
+
+            foreach (var action in GetAllPenumbraToggleActions().Where(ActionUsesPenumbra))
+                ApplyPenumbraToggleActionDirect(action);
+        }
+
+        private void ApplyPenumbraToggleActionDirect(HeelsRuleAction action)
+        {
+            var collection = action.PenumbraCollection ?? "Default";
+            var modDirectory = action.PenumbraModName ?? "";
+            if (string.IsNullOrWhiteSpace(modDirectory))
+                return;
+
+            if (action.PenumbraActionKind == PenumbraActionKind.EnableMod
+                || action.PenumbraActionKind == PenumbraActionKind.DisableMod)
+            {
+                var enabled = action.PenumbraActionKind == PenumbraActionKind.EnableMod;
+                if (!_penumbraInterop.TrySetModEnabled(collection, modDirectory, enabled, out var result, out var error)
+                    || (result is not PenumbraIpcEc.Success and not PenumbraIpcEc.NothingChanged
+                        && !string.IsNullOrWhiteSpace(error)))
+                {
+                    PluginLog.Warning(
+                        $"Penumbra toggle SetMod failed: [{collection}] {modDirectory} → {error} ({result})");
+                }
+
+                return;
+            }
+
+            var optionGroup = action.PenumbraOption ?? "";
+            if (string.IsNullOrWhiteSpace(optionGroup))
+                return;
+
+            var groupType = _penumbraInterop.GetOptionGroupType(modDirectory, optionGroup);
+            if (PenumbraInterop.UsesBoolOptionValue(groupType))
+            {
+                var enabledNames = action.PenumbraMultiToggleStates
+                    .Where(pair => pair.Value)
+                    .Select(pair => pair.Key)
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (!_penumbraInterop.TryApplyMultiToggleSettings(
+                        collection,
+                        modDirectory,
+                        optionGroup,
+                        enabledNames,
+                        out var result,
+                        out var error)
+                    || (result is not PenumbraIpcEc.Success and not PenumbraIpcEc.NothingChanged
+                        && !string.IsNullOrWhiteSpace(error)))
+                {
+                    PluginLog.Warning(
+                        $"Penumbra toggle multi-toggle failed: [{collection}] {modDirectory} → {optionGroup} ({result})");
+                }
+
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(action.PenumbraOptionName))
+                return;
+
+            if (!_penumbraInterop.TryApplyModSetting(
+                    collection,
+                    modDirectory,
+                    optionGroup,
+                    action.PenumbraOptionName,
+                    action.PenumbraOptionEnabled,
+                    out var singleResult,
+                    out var singleError)
+                || (singleResult is not PenumbraIpcEc.Success and not PenumbraIpcEc.NothingChanged
+                    && !string.IsNullOrWhiteSpace(singleError)))
+            {
+                PluginLog.Warning(
+                    $"Penumbra toggle option failed: [{collection}] {modDirectory} → {optionGroup} ({singleResult})");
+            }
+        }
+
+        private void RevertPenumbraToggleModStatesOnDeactivate()
+        {
+            if (!isPenumbraIpcReady)
+                return;
+
+            foreach (var action in GetAllPenumbraToggleActions())
+            {
+                if (action.PenumbraActionKind != PenumbraActionKind.EnableMod
+                    && action.PenumbraActionKind != PenumbraActionKind.DisableMod)
+                    continue;
+
+                var collection = action.PenumbraCollection ?? "Default";
+                var modDirectory = action.PenumbraModName ?? "";
+                if (string.IsNullOrWhiteSpace(modDirectory))
+                    continue;
+
+                var restoreEnabled = action.PenumbraActionKind == PenumbraActionKind.DisableMod;
+                if (_penumbraInterop.TrySetModEnabled(
+                        collection,
+                        modDirectory,
+                        restoreEnabled,
+                        out var result,
+                        out var error)
+                    && result is not PenumbraIpcEc.Success and not PenumbraIpcEc.NothingChanged
+                    && !string.IsNullOrWhiteSpace(error))
+                {
+                    PluginLog.Warning(
+                        $"Penumbra toggle revert failed: [{collection}] {modDirectory} → {error} ({result})");
+                }
+            }
         }
 
         private bool PenumbraTrySetModEnabled(
@@ -6574,6 +6758,12 @@ namespace HeelsDesignLinker
                         ImGui.EndTabItem();
                     }
 
+                    if (ImGui.BeginTabItem(Localization.TabPenumbraToggle))
+                    {
+                        DrawPenumbraToggleModeTab();
+                        ImGui.EndTabItem();
+                    }
+
                     if (ImGui.BeginTabItem(Localization.TabSettings))
                     {
                         settingsTabActive = true;
@@ -6937,38 +7127,47 @@ namespace HeelsDesignLinker
         {
             try
             {
-                if (!Configuration.ShowDtrStatusBar)
-                {
-                    RemoveDtrBarEntry();
-                    RemoveDtrSfwBarEntry();
-                    return;
-                }
-
                 if (!ClientState.IsLoggedIn)
                 {
                     if (dtrBarEntry != null)
                         dtrBarEntry.Shown = false;
                     if (dtrSfwBarEntry != null)
                         dtrSfwBarEntry.Shown = false;
+                    if (dtrPenumbraToggleBarEntry != null)
+                        dtrPenumbraToggleBarEntry.Shown = false;
                     return;
                 }
 
-                var text = BuildDtrStatusText();
-                var entry = AcquireDtrBarEntry(text);
-                entry.Shown = true;
-                if (text != lastDtrBarText)
+                if (Configuration.ShowDtrStatusBar)
                 {
-                    entry.Text = ToDtrSeString(text);
-                    lastDtrBarText = text;
+                    var text = BuildDtrStatusText();
+                    var entry = AcquireDtrBarEntry(text);
+                    entry.Shown = true;
+                    if (text != lastDtrBarText)
+                    {
+                        entry.Text = ToDtrSeString(text);
+                        lastDtrBarText = text;
+                    }
+
+                    UpdateDtrSfwBar();
+                }
+                else
+                {
+                    RemoveDtrBarEntry();
+                    RemoveDtrSfwBarEntry();
                 }
 
-                UpdateDtrSfwBar();
+                if (Configuration.ShowDtrPenumbraToggleBar)
+                    UpdateDtrPenumbraToggleBar();
+                else
+                    RemoveDtrPenumbraToggleBarEntry();
             }
             catch (Exception ex)
             {
                 PluginLog.Error(ex, "Failed to update DTR status bar");
                 RemoveDtrBarEntry();
                 RemoveDtrSfwBarEntry();
+                RemoveDtrPenumbraToggleBarEntry();
             }
         }
 
@@ -7038,6 +7237,57 @@ namespace HeelsDesignLinker
             lastDtrSfwBarText = "";
         }
 
+        private IDtrBarEntry AcquireDtrPenumbraToggleBarEntry(string text)
+        {
+            if (dtrPenumbraToggleBarEntry != null)
+                return dtrPenumbraToggleBarEntry;
+
+            try
+            {
+                dtrPenumbraToggleBarEntry = DtrBar.Get(DtrPenumbraToggleBarEntryTitle, ToDtrSeString(text));
+            }
+            catch (ArgumentException)
+            {
+                DtrBar.Remove(DtrPenumbraToggleBarEntryTitle);
+                dtrPenumbraToggleBarEntry = DtrBar.Get(DtrPenumbraToggleBarEntryTitle, ToDtrSeString(text));
+            }
+
+            dtrPenumbraToggleBarEntry.Tooltip = ToDtrSeString(Localization.DtrPenumbraToggleBarTooltip);
+            dtrPenumbraToggleBarEntry.OnClick = _ =>
+                SetPenumbraToggleModeActive(!Configuration.PenumbraToggleModeActive);
+            return dtrPenumbraToggleBarEntry;
+        }
+
+        private void UpdateDtrPenumbraToggleBar()
+        {
+            var text = Configuration.PenumbraToggleModeActive
+                ? Localization.DtrPenumbraToggleBarActive
+                : Localization.DtrPenumbraToggleBarInactive;
+            var entry = AcquireDtrPenumbraToggleBarEntry(text);
+            entry.Shown = true;
+            if (text == lastDtrPenumbraToggleBarText)
+                return;
+
+            entry.Text = ToDtrSeString(text);
+            lastDtrPenumbraToggleBarText = text;
+        }
+
+        private void RemoveDtrPenumbraToggleBarEntry()
+        {
+            try
+            {
+                dtrPenumbraToggleBarEntry?.Remove();
+                DtrBar.Remove(DtrPenumbraToggleBarEntryTitle);
+            }
+            catch (Exception ex)
+            {
+                PluginLog.Debug(ex, "DTR Penumbra toggle entry remove failed (may already be gone)");
+            }
+
+            dtrPenumbraToggleBarEntry = null;
+            lastDtrPenumbraToggleBarText = "";
+        }
+
         private void DrawPersistentStatusBar()
         {
             BuildStatusBarTexts(out var heightText, out var matchText, out var hasMatch);
@@ -7063,6 +7313,69 @@ namespace HeelsDesignLinker
                 ImGui.SetTooltip(Localization.SfwModeToggleTooltip);
 
             ImGui.Separator();
+        }
+
+        private void DrawPenumbraToggleModeTab()
+        {
+            ImGui.TextWrapped(Localization.PenumbraToggleModeTabDescription);
+            ImGui.Spacing();
+            ImGui.Separator();
+            ImGui.Spacing();
+
+            Configuration.PenumbraToggleActionGroups ??= new List<PenumbraActionGroup>();
+            DrawPenumbraToggleActionsList();
+        }
+
+        private void DrawPenumbraToggleActionsList()
+        {
+            var groups = Configuration.PenumbraToggleActionGroups!;
+
+            if (ImGui.Button(Localization.AddPenumbraActionGroup))
+            {
+                groups.Add(CreateDefaultPenumbraActionGroup());
+                SaveConfig();
+            }
+
+            if (groups.Count == 0)
+            {
+                ImGui.Spacing();
+                ImGui.TextDisabled(Localization.PenumbraToggleModeActionsEmpty);
+                return;
+            }
+
+            ImGui.Spacing();
+            ImGui.Separator();
+            ImGui.Spacing();
+
+            for (var groupIndex = 0; groupIndex < groups.Count; groupIndex++)
+            {
+                var group = groups[groupIndex];
+                if (groupIndex > 0)
+                {
+                    ImGui.Spacing();
+                    ImGui.Separator();
+                    ImGui.Spacing();
+                }
+
+                ImGui.PushID(groupIndex);
+                var subHostRuleIndex = ToToggleGroupRuleIndex(groupIndex);
+                DrawPenumbraActionGroup(
+                    group,
+                    subHostRuleIndex,
+                    dedupLayer: null,
+                    canDeleteGroup: true,
+                    onDeleteGroup: () =>
+                    {
+                        Configuration.PenumbraToggleActionGroups!.RemoveAt(groupIndex);
+                        SaveConfig();
+                    },
+                    idPrefix: $"PenToggleG{groupIndex}",
+                    groupReorderRuleIndex: TogglePenumbraGroupsReorderRuleIndex,
+                    groupReorderIndex: groupIndex);
+                ImGui.PopID();
+            }
+
+            ProcessActionDragReorder(TogglePenumbraGroupsReorderRuleIndex);
         }
 
         private void DrawSfwModeTab()
@@ -8080,6 +8393,17 @@ namespace HeelsDesignLinker
             }
             if (ImGui.IsItemHovered())
                 ImGui.SetTooltip(Localization.ShowDtrStatusBarTooltip);
+
+            var showDtrPenumbraToggleBar = Configuration.ShowDtrPenumbraToggleBar;
+            if (ImGui.Checkbox(Localization.ShowDtrPenumbraToggleBar, ref showDtrPenumbraToggleBar))
+            {
+                Configuration.ShowDtrPenumbraToggleBar = showDtrPenumbraToggleBar;
+                SaveConfig();
+                if (!showDtrPenumbraToggleBar)
+                    RemoveDtrPenumbraToggleBarEntry();
+            }
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(Localization.ShowDtrPenumbraToggleBarTooltip);
 
             ImGui.Spacing();
             ImGui.Separator();
@@ -9401,6 +9725,29 @@ namespace HeelsDesignLinker
                             }
                         }
                     }
+                    else if (TryParseToggleGroupRuleIndex(actionToDeleteRuleIndex, out var toggleGroupIndex)
+                        && actionToDeleteIndex >= 0)
+                    {
+                        Configuration.PenumbraToggleActionGroups ??= new List<PenumbraActionGroup>();
+                        if (toggleGroupIndex < Configuration.PenumbraToggleActionGroups.Count)
+                        {
+                            var toggleGroup = Configuration.PenumbraToggleActionGroups[toggleGroupIndex];
+                            if (actionToDeleteIndex < toggleGroup.SubActions.Count)
+                            {
+                                if (toggleGroup.SubActions.Count == 1)
+                                {
+                                    Configuration.PenumbraToggleActionGroups.RemoveAt(toggleGroupIndex);
+                                }
+                                else
+                                {
+                                    toggleGroup.SubActions.RemoveAt(actionToDeleteIndex);
+                                }
+
+                                SaveConfig();
+                                deleted = true;
+                            }
+                        }
+                    }
                     else if (actionToDeleteRuleIndex >= 0 
                         && actionToDeleteRuleIndex < ActiveRules.Count
                         && actionToDeleteIndex >= 0)
@@ -9526,6 +9873,13 @@ namespace HeelsDesignLinker
                 return;
             }
 
+            if (ruleIndex == TogglePenumbraGroupsReorderRuleIndex)
+            {
+                Configuration.PenumbraToggleActionGroups ??= new List<PenumbraActionGroup>();
+                ReorderPenumbraActionGroups(Configuration.PenumbraToggleActionGroups, fromIndex, toIndex);
+                return;
+            }
+
             if (TryParsePenumbraSubHostRuleIndex(ruleIndex, out var hostRuleIndex, out var groupActionIndex))
             {
                 var groupAction = ActiveRules[hostRuleIndex].Actions[groupActionIndex];
@@ -9539,6 +9893,16 @@ namespace HeelsDesignLinker
                 Configuration.SfwModeActionGroups ??= new List<PenumbraActionGroup>();
                 ReorderPenumbraSubActions(
                     Configuration.SfwModeActionGroups[sfwGroupIndex].SubActions,
+                    fromIndex,
+                    toIndex);
+                return;
+            }
+
+            if (TryParseToggleGroupRuleIndex(ruleIndex, out var toggleGroupIndex))
+            {
+                Configuration.PenumbraToggleActionGroups ??= new List<PenumbraActionGroup>();
+                ReorderPenumbraSubActions(
+                    Configuration.PenumbraToggleActionGroups[toggleGroupIndex].SubActions,
                     fromIndex,
                     toIndex);
                 return;
@@ -13124,8 +13488,11 @@ namespace HeelsDesignLinker
             ClearSoundMixerTemporaryOverrides();
             ClearPenumbraTemporaryOverrides(forceRemove: true);
             ClearSfwPenumbraTemporaryOverrides(forceRemove: true);
+            if (Configuration.PenumbraToggleModeActive)
+                RevertPenumbraToggleModStatesOnDeactivate();
             RemoveDtrBarEntry();
             RemoveDtrSfwBarEntry();
+            RemoveDtrPenumbraToggleBarEntry();
         }
     }
 }
