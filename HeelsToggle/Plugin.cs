@@ -999,8 +999,6 @@ namespace HeelsDesignLinker
         /// <summary>登录后一段时间内，规则匹配稳定等待的上限（与基准行动同步门控后，二者同周期 apply）。</summary>
         private static readonly TimeSpan PostLoginFastMatchWindow = TimeSpan.FromSeconds(20);
         private const float PostLoginRuleMatchStableCapSeconds = 0.2f;
-        /// <summary>登录后延迟多久才允许基准 Glamourer revert（与规则 Glamourer apply 无关）。</summary>
-        private static readonly TimeSpan BaselineGlamourerRevertDelay = TimeSpan.FromSeconds(90);
         private DateTime? loginSinceUtc;
         private bool isLoginProtectionActive;
         /// <summary>登录/中途启用保护结束后，须强制完整 apply 规则一次（其它插件可能在预热期重置临时状态）。</summary>
@@ -1033,7 +1031,7 @@ namespace HeelsDesignLinker
         private bool restoreDefaultsPending;
         private bool wasSettingsTabActive;
         private const string KoFiUrl = "https://ko-fi.com/kokatakyodai";
-        private const int ConfigSchemaVersion = 31;
+        private const int ConfigSchemaVersion = 32;
         private const int SfwGroupRuleIndexBase = -2;
         private const int PenumbraSubHostRuleIndexBase = -100000;
         private const int PenumbraSubHostRuleIndexStride = 1000;
@@ -1273,6 +1271,10 @@ namespace HeelsDesignLinker
                 if (Configuration.Version < 31)
                 {
                     // v31: Penumbra DTR 改为 /penumbra toggle（全局 Enable Mods）；移除旧版直接切换 Mod 行动组配置。
+                }
+                if (Configuration.Version < 32)
+                {
+                    MigrateBaselineGlamourerNoRevert();
                 }
                 Configuration.Version = ConfigSchemaVersion;
                 PluginInterface.SavePluginConfig(Configuration);
@@ -2827,13 +2829,6 @@ namespace HeelsDesignLinker
             return !IsBaselineApplyAllowed();
         }
 
-        private bool IsBaselineGlamourerRevertAllowed()
-        {
-            if (!loginSinceUtc.HasValue)
-                return true;
-
-            return DateTime.UtcNow - loginSinceUtc.Value >= BaselineGlamourerRevertDelay;
-        }
 
         private bool IsPlayerInWorld()
         {
@@ -5409,7 +5404,10 @@ namespace HeelsDesignLinker
                     var config = new BaselineActionConfig
                     {
                         ParameterId = param,
-                        Mode = BaselineMode.Auto
+                        Mode = param.Type == ActionType.Glamourer
+                            ? BaselineMode.Manual
+                            : BaselineMode.Auto,
+                        ManualState = BaselineManualState.Disabled,
                     };
                     
                     // 检查是否已被 dismiss
@@ -5519,6 +5517,25 @@ namespace HeelsDesignLinker
         }
 
         /// <summary>迁移旧版基准模式（Disabled/Enabled/Ignore）到 Auto/Manual/Ignore</summary>
+        /// <summary>Glamourer 基准不再使用 /glamour revert；旧 Auto 迁移为手动+禁用。</summary>
+        private void MigrateBaselineGlamourerNoRevert()
+        {
+            foreach (var ruleSet in Configuration.RuleSets)
+            {
+                foreach (var config in ruleSet.BaselineConfigs)
+                {
+                    if (config.ParameterId.Type != ActionType.Glamourer)
+                        continue;
+
+                    if (config.Mode != BaselineMode.Auto)
+                        continue;
+
+                    config.Mode = BaselineMode.Manual;
+                    config.ManualState = BaselineManualState.Disabled;
+                }
+            }
+        }
+
         private void MigrateBaselineModeV2()
         {
             foreach (var ruleSet in Configuration.RuleSets)
@@ -6337,37 +6354,13 @@ namespace HeelsDesignLinker
 
         private void ApplyBaselineGlamourer(BaselineParameterId param, BaselineActionConfig config, ref bool appliedAnything)
         {
-            if (!isGlamourerAvailable)
+            if (!isGlamourerAvailable || config.Mode == BaselineMode.Ignore)
                 return;
 
-            var shouldEnable = config.Mode == BaselineMode.Manual
-                && config.ManualState == BaselineManualState.Enabled;
-            var shouldDisable = config.Mode == BaselineMode.Auto
-                || (config.Mode == BaselineMode.Manual && config.ManualState == BaselineManualState.Disabled);
-
-            if (shouldDisable)
-            {
-                var applyKey = "Baseline:G:Revert";
-                if (lastAppliedActionKeys.Contains(applyKey))
-                    return;
-
-                if (IsLoginProtectionActive() || !IsBaselineGlamourerRevertAllowed())
-                    return;
-
-                try
-                {
-                    CommandManager.ProcessCommand("/glamour revert <me>");
-                    lastAppliedActionKeys.Add(applyKey);
-                    appliedAnything = true;
-                }
-                catch (Exception ex)
-                {
-                    PluginLog.Warning($"Baseline Glamourer revert failed: {ex.Message}");
-                }
-                return;
-            }
-
-            if (!shouldEnable || string.IsNullOrWhiteSpace(param.GlamourerDesign))
+            // 禁用 / 自动（遗留）：不操作；不再执行 /glamour revert
+            if (config.Mode != BaselineMode.Manual
+                || config.ManualState != BaselineManualState.Enabled
+                || string.IsNullOrWhiteSpace(param.GlamourerDesign))
                 return;
 
             var action = new HeelsRuleAction { Type = ActionType.Glamourer, GlamourerDesign = param.GlamourerDesign };
@@ -7775,7 +7768,34 @@ namespace HeelsDesignLinker
             ImGui.AlignTextToFramePadding();
             ImGui.Text(Localization.BaselineMode + ":");
             ImGui.SameLine();
-            
+
+            if (param.Type == ActionType.Glamourer)
+            {
+                var glamMode = config.Mode == BaselineMode.Ignore ? 1 : 0;
+                ImGui.SetNextItemWidth(120);
+                var glamModeNames = new[]
+                {
+                    Localization.BaselineModeManual,
+                    Localization.BaselineModeIgnore,
+                };
+                if (ImGui.Combo($"##Mode{paramKey}", ref glamMode, glamModeNames, glamModeNames.Length))
+                {
+                    config.Mode = glamMode == 1 ? BaselineMode.Ignore : BaselineMode.Manual;
+                    InvalidateApplyStateForBaselineChange();
+                    SaveConfig();
+                }
+
+                ImGuiComponents.HelpMarker(Localization.BaselineGlamourerModeTooltip);
+
+                if (config.Mode == BaselineMode.Manual)
+                {
+                    ImGui.Indent(12f);
+                    DrawBaselineSimpleManualSettings(config, paramKey);
+                    ImGui.Unindent(12f);
+                }
+            }
+            else
+            {
             var mode = (int)config.Mode;
             ImGui.SetNextItemWidth(120);
             var modeNames = new[] {
@@ -7815,6 +7835,7 @@ namespace HeelsDesignLinker
                 else
                     DrawBaselineSimpleManualSettings(config, paramKey);
                 ImGui.Unindent(12f);
+            }
             }
             
             if (config.IsNew)
@@ -7879,12 +7900,14 @@ namespace HeelsDesignLinker
             if (ImGui.RadioButton($"{Localization.BaselineManualDisabled}##{paramKey}", state == (int)BaselineManualState.Disabled))
             {
                 config.ManualState = BaselineManualState.Disabled;
+                InvalidateApplyStateForBaselineChange();
                 SaveConfig();
             }
             ImGui.SameLine();
             if (ImGui.RadioButton($"{Localization.BaselineManualEnabled}##{paramKey}", state == (int)BaselineManualState.Enabled))
             {
                 config.ManualState = BaselineManualState.Enabled;
+                InvalidateApplyStateForBaselineChange();
                 SaveConfig();
             }
             ImGuiComponents.HelpMarker(Localization.BaselineManualStateTooltip);

@@ -197,4 +197,3 @@ internal static class DrawObjectAppearanceBaseline
         }
     }
 }
-

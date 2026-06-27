@@ -4,10 +4,23 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.29";
+        public const string CurrentVersion = "1.4.2.30";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.30",
+                "2026-06-10",
+                [
+                    "修复逻辑错误：Glamourer 基准「自动」模式在规则未引用该 Design 时会执行 /glamour revert，误清除手动或其它规则已应用的 Glamourer（例如命中裸足后又被本体高跟覆盖）",
+                    "Glamourer 基准改为：禁用时不操作，仅手动启用时 apply Design；不再使用 revert",
+                    "新扫描与迁移的 Glamourer 基准默认为手动+禁用；UI 仅保留手动/忽略",
+                ],
+                [
+                    "Fix logic bug: Glamourer baseline Auto ran /glamour revert when the matched rule did not use that design, clearing manual or rule-applied Glamourer (e.g. barefoot match then overwritten by equipped heels)",
+                    "Glamourer baseline: disabled = no op; apply design only when manually enabled; revert removed",
+                    "New and migrated Glamourer baselines default to Manual+Disabled; UI shows Manual/Ignore only",
+                ]),
             new(
                 "1.4.2.29",
                 "2026-06-10",

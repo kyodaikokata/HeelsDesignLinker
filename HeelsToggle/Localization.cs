@@ -873,8 +873,11 @@ namespace HeelsDesignLinker
             ? "从当前规则集中扫描此 Mod 的选项设置" 
             : "Scan option settings for this mod from current rules";
         public static string BaselineModeAutoTooltip => IsChine 
-            ? "自动：使用推荐默认（Penumbra 禁用 Mod；Glamourer 还原；Honorific 清除称号）" 
-            : "Auto: Recommended defaults (Penumbra disable mod; Glamourer revert; Honorific clear title)";
+            ? "自动：Penumbra 禁用 Mod；Moodles/Honorific 使用推荐默认；Glamourer 请用手动模式" 
+            : "Auto: Penumbra disable mod; Moodle/Honorific recommended defaults; use Manual for Glamourer";
+        public static string BaselineGlamourerModeTooltip => IsChine
+            ? "手动：启用时 apply 对应 Design；禁用时不操作（不会 /glamour revert）。忽略：完全不管理。"
+            : "Manual: Enabled applies the design; Disabled does nothing (no /glamour revert). Ignore: not managed.";
         public static string BaselineModeManualTooltip => IsChine 
             ? "手动：展开详细设置，自定义启用/禁用及参数" 
             : "Manual: Expand detailed settings for enable/disable and parameters";
