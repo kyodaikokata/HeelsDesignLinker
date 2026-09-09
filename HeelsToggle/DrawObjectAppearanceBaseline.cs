@@ -21,7 +21,10 @@ internal static class DrawObjectAppearanceBaseline
     public static bool CanReadDrawObject(IPlayerCharacter? localPlayer) =>
         DrawObjectEquipmentReader.TryReadLocalPlayerSlots(localPlayer, out _, out _);
 
-    /// <summary>TransformationId + DrawObject 10 槽 + 背包 13 槽。</summary>
+    /// <summary>
+    /// TransformationId + DrawObject 10 槽 + 背包防具/饰品槽。
+    /// 不含主手/副手背包：换职只改武器时不应使指纹失效并触发 /glamour apply（否则可能覆盖盾牌等副手）。
+    /// </summary>
     public static string ComputeFingerprint(
         IPlayerCharacter? localPlayer,
         RenderedEquipmentSnapshot? renderedSnapshot = null)
@@ -170,6 +173,10 @@ internal static class DrawObjectAppearanceBaseline
         AppendRenderedFromSnapshot(sb, slots);
     }
 
+    /// <summary>
+    /// 装备背包防具/饰品 ItemId（跳过 0=主手、1=副手）。
+    /// 本插件外观规则不管理武器槽；纳入指纹会导致换职后误触发 Glamourer 重 apply。
+    /// </summary>
     private static unsafe void AppendInventory(StringBuilder sb)
     {
         sb.Append("I:");
@@ -187,10 +194,13 @@ internal static class DrawObjectAppearanceBaseline
             return;
         }
 
-        for (var i = 0; i < 13; i++)
+        // EquippedItems: 0 MainHand, 1 OffHand, 2..12 armor/accessories
+        var first = true;
+        for (var i = 2; i < 13; i++)
         {
-            if (i > 0)
+            if (!first)
                 sb.Append(',');
+            first = false;
 
             var item = container->GetInventorySlot(i);
             sb.Append(item != null ? item->ItemId : 0u);

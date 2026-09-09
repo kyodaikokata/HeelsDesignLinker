@@ -2310,10 +2310,9 @@ namespace HeelsDesignLinker
                         if (!isPenumbraIpcReady || !IsPenumbraActionTargetAlreadyMet(action, playerIndex.Value))
                             return false;
                     }
-                    else if (action.Type is ActionType.Honorific or ActionType.Moodles or ActionType.SoundMixer)
-                    {
-                        return false;
-                    }
+                    // Honorific / Moodles / SoundMixer 不参与外观达标判定；
+                    // 否则换职改指纹时会误判未达标并重跑 /glamour apply，覆盖副手盾牌等。
+                    // 非外观行动在外观 skip 路径由 RecordNonAppearanceApplyFromSkip 单独处理。
                 }
             }
 
@@ -4576,6 +4575,15 @@ namespace HeelsDesignLinker
 
             try
             {
+                var weaponSlots = _glamourerInterop.GetDesignAppliedEquipmentSlotsByName(action.GlamourerDesign);
+                if (weaponSlots != null
+                    && (weaponSlots.Contains(EquipSlot.MainHand) || weaponSlots.Contains(EquipSlot.OffHand)))
+                {
+                    PluginLog.Warning(
+                        $"Glamourer design '{action.GlamourerDesign}' has MainHand/OffHand Apply enabled; "
+                        + "re-applying it can hide job weapons/shields. Turn off weapon slots in that design if unintended.");
+                }
+
                 var designArg = FormatGlamourerDesignArgument(action.GlamourerDesign);
                 CommandManager.ProcessCommand($"/glamour apply {designArg} | <me>");
                 lastAppliedActionKeys.Add(applyKey);

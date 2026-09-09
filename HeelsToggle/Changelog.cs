@@ -4,10 +4,21 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.30";
+        public const string CurrentVersion = "1.4.2.31";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.31",
+                "2026-09-09",
+                [
+                    "修复换职后副手盾牌不显示：外观指纹不再包含主手/副手背包，避免仅换武器就触发 /glamour apply 覆盖副手",
+                    "外观达标判定不再因同规则含 Moodles/Honorific/SoundMixer 而失败，减少误重 apply",
+                ],
+                [
+                    "Fix missing off-hand shield after job switch: appearance fingerprint excludes main/off-hand inventory so weapon-only changes do not re-run /glamour apply",
+                    "Appearance target-met check no longer fails when the same rule includes Moodles/Honorific/SoundMixer",
+                ]),
             new(
                 "1.4.2.30",
                 "2026-06-10",
