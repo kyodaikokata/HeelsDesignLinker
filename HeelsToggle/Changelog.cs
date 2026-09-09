@@ -4,10 +4,19 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.35";
+        public const string CurrentVersion = "1.4.2.36";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.36",
+                "2026-09-09",
+                [
+                    "换职武器同步：Revert 到游戏实装后追加 RevertToAutomation，重新执行 Glamourer 自动化（无自动化时 NothingDone，不影响）",
+                ],
+                [
+                    "Job-switch sync: after Revert to game gear, call RevertToAutomation to re-run Glamourer automations (NothingDone if none configured)",
+                ]),
             new(
                 "1.4.2.35",
                 "2026-09-09",

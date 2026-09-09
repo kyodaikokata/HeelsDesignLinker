@@ -451,8 +451,8 @@ namespace HeelsDesignLinker
             ? "换主/副手时恢复 Glamourer 为游戏实装"
             : "On main/off-hand change, revert Glamourer equipment to game state";
         public static string ClearGlamourerWeaponsOnChangeTooltip => IsChine
-            ? "主手或副手背包装备变化时（如换职），对 Glamourer 装备层执行 Revert 恢复游戏实装（不按副手槽 SetItem）。适用于驯兽师等尚未录入副手槽的职业，避免残留箭袋/双手隐藏；之后会重新匹配规则并必要时 apply Design。默认开启。"
-            : "When main/off-hand inventory changes (e.g. job switch), Revert Glamourer equipment to game gear (not SetItem on OffHand). Needed when Glamourer has no off-hand slot for jobs like Beastmaster (avoids quiver/2H residue); then rematch rules and re-apply designs if needed. On by default.";
+            ? "主手或副手背包装备变化时（如换职）：先 Revert 装备层到游戏实装（露出驯兽师盾等），再 RevertToAutomation 重套自动化；无自动化时后者为空操作。之后重新匹配规则并必要时 apply Design。默认开启。"
+            : "When main/off-hand inventory changes (e.g. job switch): Revert equipment to game gear (e.g. Beastmaster shield), then RevertToAutomation to re-apply automations (no-op if none). Then rematch rules and apply designs if needed. On by default.";
         public static string HeightRulesOrderHint => IsChine
             ? "规则按从上到下的顺序匹配：命中第一条后不再检查后续规则（如果 / 否则如果 / 否则）。每条规则可组合高度条件与装备外观条件（读取 DrawObject 渲染结果）。最后一条可设为「否则」兜底；「否则」后不能再有规则。可拖拽左侧握把调整顺序。"
             : "Rules are evaluated top to bottom (if / else if / else). Each rule can combine height and rendered equipment conditions (DrawObject). The last rule may be an else fallback; rules after else are unreachable. Drag the left handle to reorder.";

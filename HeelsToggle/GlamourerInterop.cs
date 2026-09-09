@@ -1025,6 +1025,47 @@ internal sealed class GlamourerInterop
         return false;
     }
 
+    /// <summary>
+    /// 按当前角色/职业重新套用 Glamourer 自动化。
+    /// 无自动化或无匹配条目时通常返回 NothingDone(7)，视为成功（不改变状态）。
+    /// </summary>
+    public bool TryRevertToAutomation(int objectIndex, out string detail)
+    {
+        detail = "";
+        if (!IsGlamourerLoaded(_pluginInterface))
+        {
+            detail = "Glamourer not loaded";
+            return false;
+        }
+
+        if (objectIndex < 0)
+        {
+            detail = "invalid object index";
+            return false;
+        }
+
+        _cachedPlayerState = null;
+        const uint key = 0;
+        // Equipment | Customization — 让自动化完整重算
+        const ulong flags = 2ul | 4ul;
+
+        if (TryInvokeRevertToAutomation(objectIndex, key, flags, out var ec, out var err))
+        {
+            // Success=0, NothingDone=7（无自动化可套）
+            detail = $"RevertToAutomation ec={ec}";
+            return ec is 0 or 7;
+        }
+
+        if (TryInvokeRevertToAutomationNoFlags(objectIndex, key, out ec, out err))
+        {
+            detail = $"RevertToAutomation(noflags) ec={ec}";
+            return ec is 0 or 7;
+        }
+
+        detail = $"RevertToAutomation failed ({err})";
+        return false;
+    }
+
     private bool TryInvokeRevertState(
         int objectIndex,
         uint key,
@@ -1068,6 +1109,59 @@ internal sealed class GlamourerInterop
         try
         {
             var sub = _pluginInterface.GetIpcSubscriber<int, uint, int>("Glamourer.RevertState");
+            ec = sub.InvokeFunc(objectIndex, key);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+
+    private bool TryInvokeRevertToAutomation(
+        int objectIndex,
+        uint key,
+        ulong flags,
+        out int ec,
+        out string error)
+    {
+        ec = -1;
+        error = "";
+        foreach (var gate in new[] { "Glamourer.RevertToAutomation", "Glamourer.RevertToAutomation.V2" })
+        {
+            try
+            {
+                var sub = _pluginInterface.GetIpcSubscriber<int, uint, ulong, int>(gate);
+                ec = sub.InvokeFunc(objectIndex, key, flags);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                try
+                {
+                    var sub = _pluginInterface.GetIpcSubscriber<int, uint, uint, int>(gate);
+                    ec = sub.InvokeFunc(objectIndex, key, (uint)flags);
+                    return true;
+                }
+                catch (Exception ex2)
+                {
+                    error = $"{ex.Message} / {ex2.Message}";
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryInvokeRevertToAutomationNoFlags(int objectIndex, uint key, out int ec, out string error)
+    {
+        ec = -1;
+        error = "";
+        try
+        {
+            var sub = _pluginInterface.GetIpcSubscriber<int, uint, int>("Glamourer.RevertToAutomation");
             ec = sub.InvokeFunc(objectIndex, key);
             return true;
         }

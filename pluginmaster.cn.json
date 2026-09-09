@@ -23,8 +23,8 @@
       "other"
     ],
     "DalamudApiLevel": 15,
-    "AssemblyVersion": "1.4.2.32",
-    "Changelog": "1.4.2.32: 主手/副手变化时清除 Glamourer 主副手覆写并重匹配（默认开）。详见游戏内更新履历。",
+    "AssemblyVersion": "1.4.2.35",
+    "Changelog": "1.4.2.35: 换职武器同步改为 Revert 装备层到游戏实装（不再 SetItem 副手）。详见游戏内更新履历。",
     "LastUpdate": "0",
     "RepoUrl": "https://github.com/kyodaikokata/HeelsDesignLinker",
     "DownloadLinkInstall": "https://raw.githubusercontent.com/kyodaikokata/KKT-Catalog/main/plugins/HeelsDesignLinker/latest-cn.zip",

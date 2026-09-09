@@ -2884,8 +2884,21 @@ namespace HeelsDesignLinker
                 }
             }
 
+            if (reverted)
+            {
+                var autoOk = _glamourerInterop.TryRevertToAutomation(
+                    playerIndex.Value,
+                    out var autoDetail);
+                lastWeaponOverrideClearStatus = $"{lastWeaponOverrideClearStatus}; {autoDetail}";
+                if (!autoOk)
+                {
+                    PluginLog.Warning(
+                        $"Weapon slot change → RevertToAutomation did not succeed: {autoDetail}");
+                }
+            }
+
             PluginLog.Information(
-                $"Weapon slot change → Glamourer revert to game equipment: success={reverted}; {lastWeaponOverrideClearStatus}");
+                $"Weapon slot change → Glamourer revert to game then automation: success={reverted}; {lastWeaponOverrideClearStatus}");
 
             pendingWeaponOverrideClearReapply = true;
             PreparePostWeaponOverrideClearReapply();

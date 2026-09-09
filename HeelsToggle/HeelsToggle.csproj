@@ -12,9 +12,9 @@
         <Use_Dalamud_CN Condition="'$(Use_Dalamud_CN)' == ''">true</Use_Dalamud_CN>
         <DalamudApiLevel>15</DalamudApiLevel>
 
-        <Version>1.4.2.35</Version>
-        <AssemblyVersion>1.4.2.35</AssemblyVersion>
-        <FileVersion>1.4.2.35</FileVersion>
+        <Version>1.4.2.36</Version>
+        <AssemblyVersion>1.4.2.36</AssemblyVersion>
+        <FileVersion>1.4.2.36</FileVersion>
 
         <Author>KKT</Author>
         <Name>Heels Design Linker</Name>
