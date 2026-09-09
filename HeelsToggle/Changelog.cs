@@ -4,10 +4,37 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.32";
+        public const string CurrentVersion = "1.4.2.35";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.35",
+                "2026-09-09",
+                [
+                    "换职武器同步改为 Glamourer Revert 装备层到游戏实装（不再 SetItem 副手槽）：驯兽师等未录入副手时按槽还原无效，会导致箭袋/双手残留；Revert 后重新匹配规则并必要时 apply Design",
+                ],
+                [
+                    "Job-switch sync now Reverts Glamourer equipment to game state (no OffHand SetItem): jobs like Beastmaster without off-hand slot make per-slot restore useless (quiver/2H residue); rematch and re-apply designs after revert",
+                ]),
+            new(
+                "1.4.2.34",
+                "2026-09-09",
+                [
+                    "修复换职武器同步：Glamourer SetItem 槽位改为 ApiEquipSlot MainHand=1 / OffHand=2（此前误用 10/11=项链/手镯），IPC 使用 SetItem.V3；副手空槽写入 item=0 以清除箭袋/双手残留",
+                ],
+                [
+                    "Fix job-switch weapon sync: Glamourer SetItem uses ApiEquipSlot MainHand=1 / OffHand=2 (was wrongly 10/11=Neck/Wrists), IPC SetItem.V3; write item=0 for empty off-hand to clear quiver/2H residue",
+                ]),
+            new(
+                "1.4.2.33",
+                "2026-09-09",
+                [
+                    "修复「换主/副手清 Glamourer」误用 ApplyState 写回整份状态、导致全身装备残留覆写：改为仅对主/副手 SetItem 同步背包，且不再清 Glamourer 去重以免规则 Design 整段重 apply",
+                ],
+                [
+                    "Fix weapon-clear feature re-applying full Glamourer GetState via ApplyState (locked entire previous outfit): only SetItem main/off-hand from inventory; stop clearing Glamourer dedup keys",
+                ]),
             new(
                 "1.4.2.32",
                 "2026-09-09",

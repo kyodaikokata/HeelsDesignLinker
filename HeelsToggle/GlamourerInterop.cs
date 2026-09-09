@@ -978,10 +978,12 @@ internal sealed class GlamourerInterop
     }
     
     /// <summary>
-    /// 清除本地玩家 Glamourer 对主手/副手的覆写（Apply=false），使显示回到背包实装。
-    /// 若状态编辑失败，则回退为 SetItem 同步当前背包 ItemId。
+    /// 主/副手变化时：将 Glamourer 装备层恢复为游戏实装（Revert），而不是按副手槽 SetItem。
+    /// BST 等职业若尚未录入副手槽，Glamourer 不会暴露 OffHand，SetItem(OffHand) 无效，
+    /// 会残留上一职业箭袋/双手隐藏等；Revert 装备层可回到真实背包（含盾牌）。
+    /// 仅 Equipment 标志，尽量不动 Customize。
     /// </summary>
-    public bool TryClearMainHandOffHandOverrides(int objectIndex, out string detail)
+    public bool TryRevertEquipmentToGameState(int objectIndex, out string detail)
     {
         detail = "";
         if (!IsGlamourerLoaded(_pluginInterface))
@@ -996,140 +998,82 @@ internal sealed class GlamourerInterop
             return false;
         }
 
-        var state = GetLocalPlayerState(forceRefresh: true);
-        if (state != null && TryClearWeaponApplyFlagsInState(state, out var hadOverride))
-        {
-            if (!hadOverride)
-            {
-                detail = "no weapon override";
-                return true;
-            }
+        _cachedPlayerState = null;
+        const uint key = 0;
+        // ApplyFlag.Equipment = 2（只恢复装备，不碰捏脸等）
+        const ulong equipmentFlag = 2ul;
 
-            if (TryApplyState(state, objectIndex, out var applyDetail))
-            {
-                _cachedPlayerState = null;
-                detail = applyDetail;
-                return true;
-            }
-
-            detail = $"ApplyState failed ({applyDetail}); fallback SetItem";
-        }
-        else if (state == null)
+        if (TryInvokeRevertState(objectIndex, key, equipmentFlag, out var ec, out var err))
         {
-            detail = "GetState failed; fallback SetItem";
+            detail = $"RevertState Equipment ec={ec}";
+            if (ec == 0)
+                return true;
         }
 
-        if (TrySyncWeaponsFromInventory(objectIndex, out var syncDetail))
+        if (TryInvokeRevertStateNoFlags(objectIndex, key, out ec, out err))
         {
-            _cachedPlayerState = null;
-            detail = string.IsNullOrEmpty(detail) ? syncDetail : $"{detail}; {syncDetail}";
+            detail = string.IsNullOrEmpty(detail)
+                ? $"RevertState ec={ec}"
+                : $"{detail}; RevertState(noflags) ec={ec}";
+            if (ec == 0)
+                return true;
+        }
+
+        detail = string.IsNullOrEmpty(detail)
+            ? $"RevertState IPC failed ({err})"
+            : $"{detail}; IPC failed ({err})";
+        return false;
+    }
+
+    private bool TryInvokeRevertState(
+        int objectIndex,
+        uint key,
+        ulong flags,
+        out int ec,
+        out string error)
+    {
+        ec = -1;
+        error = "";
+        foreach (var gate in new[] { "Glamourer.RevertState", "Glamourer.RevertState.V2" })
+        {
+            try
+            {
+                var sub = _pluginInterface.GetIpcSubscriber<int, uint, ulong, int>(gate);
+                ec = sub.InvokeFunc(objectIndex, key, flags);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                try
+                {
+                    var sub = _pluginInterface.GetIpcSubscriber<int, uint, uint, int>(gate);
+                    ec = sub.InvokeFunc(objectIndex, key, (uint)flags);
+                    return true;
+                }
+                catch (Exception ex2)
+                {
+                    error = $"{ex.Message} / {ex2.Message}";
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryInvokeRevertStateNoFlags(int objectIndex, uint key, out int ec, out string error)
+    {
+        ec = -1;
+        error = "";
+        try
+        {
+            var sub = _pluginInterface.GetIpcSubscriber<int, uint, int>("Glamourer.RevertState");
+            ec = sub.InvokeFunc(objectIndex, key);
             return true;
         }
-
-        detail = string.IsNullOrEmpty(detail) ? syncDetail : $"{detail}; {syncDetail}";
-        return false;
-    }
-
-    private static bool TryClearWeaponApplyFlagsInState(JObject state, out bool hadOverride)
-    {
-        hadOverride = false;
-        foreach (var slotName in new[] { "MainHand", "OffHand" })
-        {
-            var applyToken = state.SelectToken($"Equipment.{slotName}.Apply");
-            if (applyToken is not { Type: JTokenType.Boolean })
-                continue;
-
-            if (!applyToken.ToObject<bool>())
-                continue;
-
-            ((JValue)applyToken).Value = false;
-            hadOverride = true;
-        }
-
-        return true;
-    }
-
-    private bool TryApplyState(JObject state, int objectIndex, out string detail)
-    {
-        detail = "";
-        const uint key = 0;
-        // ApplyFlag.Equipment = 2
-        const uint equipmentFlag = 2;
-
-        try
-        {
-            var sub = _pluginInterface.GetIpcSubscriber<object, int, uint, uint, int>("Glamourer.ApplyState");
-            var ec = sub.InvokeFunc(state, objectIndex, key, equipmentFlag);
-            if (ec == 0)
-            {
-                detail = "ApplyState(JObject) ok";
-                return true;
-            }
-
-            detail = $"ApplyState(JObject) ec={ec}";
-        }
         catch (Exception ex)
         {
-            detail = $"ApplyState(JObject): {ex.Message}";
-        }
-
-        try
-        {
-            var base64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(state.ToString(Newtonsoft.Json.Formatting.None)));
-            var sub = _pluginInterface.GetIpcSubscriber<object, int, uint, uint, int>("Glamourer.ApplyState");
-            var ec = sub.InvokeFunc(base64, objectIndex, key, equipmentFlag);
-            if (ec == 0)
-            {
-                detail = "ApplyState(Base64) ok";
-                return true;
-            }
-
-            detail = $"{detail}; ApplyState(Base64) ec={ec}";
-        }
-        catch (Exception ex)
-        {
-            detail = $"{detail}; ApplyState(Base64): {ex.Message}";
-        }
-
-        return false;
-    }
-
-    private bool TrySyncWeaponsFromInventory(int objectIndex, out string detail)
-    {
-        detail = "";
-        var okAny = false;
-        var parts = new List<string>();
-
-        // Glamourer ApiEquipSlot: MainHand=10, OffHand=11
-        okAny |= TrySetItemFromInventory(objectIndex, EquipSlot.MainHand, 10, parts);
-        okAny |= TrySetItemFromInventory(objectIndex, EquipSlot.OffHand, 11, parts);
-        detail = parts.Count > 0 ? string.Join("; ", parts) : "SetItem nothing";
-        return okAny;
-    }
-
-    private bool TrySetItemFromInventory(int objectIndex, EquipSlot slot, byte apiSlot, List<string> parts)
-    {
-        if (!InventoryEquipmentReader.TryGetItemId(slot, out var itemId))
-        {
-            parts.Add($"{slot}: inventory unread");
-            return false;
-        }
-
-        try
-        {
-            // SetItem(objectIndex, slot, itemId, stains, key, flags) → GlamourerApiEc
-            var sub = _pluginInterface.GetIpcSubscriber<int, byte, ulong, IReadOnlyList<byte>, uint, uint, int>(
-                "Glamourer.SetItem");
-            IReadOnlyList<byte> stains = Array.Empty<byte>();
-            const uint key = 0;
-            const uint onceFlag = 1; // ApplyFlag.Once — 不持久锁死自动化
-            var ec = sub.InvokeFunc(objectIndex, apiSlot, itemId, stains, key, onceFlag);
-            parts.Add($"{slot}: SetItem ec={ec} item={itemId}");
-            return ec == 0;
-        }
-        catch (Exception ex)
-        {
-            parts.Add($"{slot}: SetItem {ex.Message}");
+            error = ex.Message;
             return false;
         }
     }

@@ -2808,7 +2808,7 @@ namespace HeelsDesignLinker
             lastApplyUtc = DateTime.MinValue;
         }
 
-        /// <summary>主副手覆写清除后：清指纹与 Glamourer 去重，重算规则并必要时 apply。</summary>
+        /// <summary>装备 Revert 到游戏实装后：清指纹与 Glamourer 去重，以便规则 Design 再 apply。</summary>
         private void PreparePostWeaponOverrideClearReapply()
         {
             ClearAppearanceApplyFingerprint();
@@ -2827,7 +2827,10 @@ namespace HeelsDesignLinker
             lastApplyUtc = DateTime.MinValue;
         }
 
-        /// <summary>主手/副手背包 ItemId 变化时清除 Glamourer 主副手覆写，并请求规则重匹配。</summary>
+        /// <summary>
+        /// 主手/副手背包变化时：Revert Glamourer 装备层到游戏实装（不按 OffHand 槽 SetItem），
+        /// 再重匹配规则并必要时 apply。BST 等未录入副手的职业只能靠 Revert 露出盾牌。
+        /// </summary>
         private void ProcessWeaponSlotGlamourerSync(bool appearanceTransformActive)
         {
             if (!InventoryEquipmentReader.TryGetItemId(EquipSlot.MainHand, out var mainHand)
@@ -2862,11 +2865,27 @@ namespace HeelsDesignLinker
             if (playerIndex == null)
                 return;
 
-            var cleared = _glamourerInterop.TryClearMainHandOffHandOverrides(
+            var reverted = _glamourerInterop.TryRevertEquipmentToGameState(
                 playerIndex.Value,
                 out lastWeaponOverrideClearStatus);
+            if (!reverted)
+            {
+                try
+                {
+                    CommandManager.ProcessCommand("/glamour revert <me>");
+                    lastWeaponOverrideClearStatus =
+                        $"{lastWeaponOverrideClearStatus}; fallback /glamour revert <me>";
+                    reverted = true;
+                }
+                catch (Exception ex)
+                {
+                    lastWeaponOverrideClearStatus =
+                        $"{lastWeaponOverrideClearStatus}; revert command failed: {ex.Message}";
+                }
+            }
+
             PluginLog.Information(
-                $"Weapon slot change → clear Glamourer MH/OH overrides: success={cleared}; {lastWeaponOverrideClearStatus}");
+                $"Weapon slot change → Glamourer revert to game equipment: success={reverted}; {lastWeaponOverrideClearStatus}");
 
             pendingWeaponOverrideClearReapply = true;
             PreparePostWeaponOverrideClearReapply();

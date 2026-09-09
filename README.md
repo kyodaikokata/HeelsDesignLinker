@@ -1,6 +1,6 @@
 # Heels Design Linker
 
-**Current version:** 1.4.0.0
+**Current version:** 1.4.2.32
 
 **Source repository:** https://github.com/kyodaikokata/HeelsDesignLinker
 
