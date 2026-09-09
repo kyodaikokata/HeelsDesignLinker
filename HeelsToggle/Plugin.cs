@@ -574,6 +574,12 @@ namespace HeelsDesignLinker
         /// <summary>在 DTR 显示 Penumbra 全局 Enable Mods 切换按钮（HDL Pen，等同 /penumbra toggle）。</summary>
         public bool ShowDtrPenumbraToggleBar { get; set; } = true;
 
+        /// <summary>
+        /// 主手/副手背包变化时清除 Glamourer 主副手覆写，并重新匹配规则、必要时 apply。
+        /// </summary>
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Include)]
+        public bool ClearGlamourerWeaponsOnChange { get; set; } = true;
+
         /// <summary>SFW 模式是否激活（全局，高于规则 Penumbra 层）。</summary>
         public bool SfwModeActive { get; set; } = false;
 
@@ -1005,6 +1011,11 @@ namespace HeelsDesignLinker
         private bool pendingPostStartupProtectionApply;
         /// <summary>SimpleHeels 试穿(TempOffset)结束后须补 apply 一次。</summary>
         private bool pendingPostTryOnApply;
+        private bool pendingWeaponOverrideClearReapply;
+        private bool weaponSlotSyncInitialized;
+        private uint lastSyncedMainHandItemId;
+        private uint lastSyncedOffHandItemId;
+        private string lastWeaponOverrideClearStatus = "";
         private bool _wasSimpleHeelsTryOnActive;
         private DateTime? localPlayerStableSinceUtc;
         private DateTime? appearancePopulatedSinceUtc;
@@ -1031,7 +1042,7 @@ namespace HeelsDesignLinker
         private bool restoreDefaultsPending;
         private bool wasSettingsTabActive;
         private const string KoFiUrl = "https://ko-fi.com/kokatakyodai";
-        private const int ConfigSchemaVersion = 32;
+        private const int ConfigSchemaVersion = 33;
         private const int SfwGroupRuleIndexBase = -2;
         private const int PenumbraSubHostRuleIndexBase = -100000;
         private const int PenumbraSubHostRuleIndexStride = 1000;
@@ -1275,6 +1286,10 @@ namespace HeelsDesignLinker
                 if (Configuration.Version < 32)
                 {
                     MigrateBaselineGlamourerNoRevert();
+                }
+                if (Configuration.Version < 33)
+                {
+                    // v33: ClearGlamourerWeaponsOnChange 默认 true
                 }
                 Configuration.Version = ConfigSchemaVersion;
                 PluginInterface.SavePluginConfig(Configuration);
@@ -2793,6 +2808,70 @@ namespace HeelsDesignLinker
             lastApplyUtc = DateTime.MinValue;
         }
 
+        /// <summary>主副手覆写清除后：清指纹与 Glamourer 去重，重算规则并必要时 apply。</summary>
+        private void PreparePostWeaponOverrideClearReapply()
+        {
+            ClearAppearanceApplyFingerprint();
+            foreach (var key in lastAppliedActionKeys
+                         .Where(k => k.StartsWith("G:", StringComparison.Ordinal))
+                         .ToList())
+            {
+                lastAppliedActionKeys.Remove(key);
+            }
+
+            lastRuleMatchHeightUsed = float.NaN;
+            lastRuleMatchFeetModelId = ushort.MaxValue;
+            stableTrackingRuleIndex = -1;
+            stableTrackingSignature = null;
+            ruleMatchStableSinceUtc = null;
+            lastApplyUtc = DateTime.MinValue;
+        }
+
+        /// <summary>主手/副手背包 ItemId 变化时清除 Glamourer 主副手覆写，并请求规则重匹配。</summary>
+        private void ProcessWeaponSlotGlamourerSync(bool appearanceTransformActive)
+        {
+            if (!InventoryEquipmentReader.TryGetItemId(EquipSlot.MainHand, out var mainHand)
+                || !InventoryEquipmentReader.TryGetItemId(EquipSlot.OffHand, out var offHand))
+            {
+                return;
+            }
+
+            if (!weaponSlotSyncInitialized)
+            {
+                lastSyncedMainHandItemId = mainHand;
+                lastSyncedOffHandItemId = offHand;
+                weaponSlotSyncInitialized = true;
+                return;
+            }
+
+            if (mainHand == lastSyncedMainHandItemId && offHand == lastSyncedOffHandItemId)
+                return;
+
+            lastSyncedMainHandItemId = mainHand;
+            lastSyncedOffHandItemId = offHand;
+
+            if (!Configuration.ClearGlamourerWeaponsOnChange
+                || !isGlamourerAvailable
+                || appearanceTransformActive
+                || IsLoginProtectionActive())
+            {
+                return;
+            }
+
+            var playerIndex = GetLocalPlayerObjectIndex();
+            if (playerIndex == null)
+                return;
+
+            var cleared = _glamourerInterop.TryClearMainHandOffHandOverrides(
+                playerIndex.Value,
+                out lastWeaponOverrideClearStatus);
+            PluginLog.Information(
+                $"Weapon slot change → clear Glamourer MH/OH overrides: success={cleared}; {lastWeaponOverrideClearStatus}");
+
+            pendingWeaponOverrideClearReapply = true;
+            PreparePostWeaponOverrideClearReapply();
+        }
+
         private bool IsBaselineApplyAllowed()
         {
             if (IsLoginProtectionActive())
@@ -2857,6 +2936,12 @@ namespace HeelsDesignLinker
             appearancePopulatedSinceUtc = null;
             baselineActionsAllowedAfterUtc = null;
             pendingPostStartupProtectionApply = false;
+            pendingPostTryOnApply = false;
+            pendingWeaponOverrideClearReapply = false;
+            weaponSlotSyncInitialized = false;
+            lastSyncedMainHandItemId = 0;
+            lastSyncedOffHandItemId = 0;
+            lastWeaponOverrideClearStatus = "";
             lastApplyUtc = DateTime.MinValue;
             ClearPenumbraApplyTracking();
             // 勿 ResetPenumbraStatusDisplay：会强制 isPenumbraIpcReady=false，中途启用插件后须等 Refresh 间隔或开面板才恢复
@@ -3470,6 +3555,8 @@ namespace HeelsDesignLinker
 
             _wasAppearanceTransformActive = appearanceTransformActive;
 
+            ProcessWeaponSlotGlamourerSync(appearanceTransformActive);
+
             var frameRenderedSnapshot = RenderedEquipmentSnapshot.Capture(localPlayerForGate);
             var appearanceChanged = _appearanceChangeTracker.CheckChanged(
                 frameRenderedSnapshot,
@@ -3624,6 +3711,7 @@ namespace HeelsDesignLinker
                     ref frameAppearanceFingerprint);
                 pendingPostStartupProtectionApply = false;
                 pendingPostTryOnApply = false;
+                pendingWeaponOverrideClearReapply = false;
                 return;
             }
 
@@ -3635,6 +3723,7 @@ namespace HeelsDesignLinker
 
             if (!pendingPostStartupProtectionApply
                 && !pendingPostTryOnApply
+                && !pendingWeaponOverrideClearReapply
                 && !pendingSoundMixerReconnectReapply
                 && !IsApplyCooldownElapsed(out var cooldownStatus))
             {
@@ -3656,6 +3745,9 @@ namespace HeelsDesignLinker
 
             if (pendingPostTryOnApply)
                 PreparePostTryOnReapply();
+
+            if (pendingWeaponOverrideClearReapply)
+                PreparePostWeaponOverrideClearReapply();
 
             var appliedRules = new List<HeelsRule>(currentAppliedRuleIndices.Count);
             foreach (var appliedIndex in currentAppliedRuleIndices)
@@ -3689,6 +3781,7 @@ namespace HeelsDesignLinker
                     ref frameAppearanceFingerprint);
                 pendingPostStartupProtectionApply = false;
                 pendingPostTryOnApply = false;
+                pendingWeaponOverrideClearReapply = false;
                 return;
             }
 
@@ -3783,6 +3876,7 @@ namespace HeelsDesignLinker
                 ref frameAppearanceFingerprint);
             pendingPostStartupProtectionApply = false;
             pendingPostTryOnApply = false;
+            pendingWeaponOverrideClearReapply = false;
             pendingSoundMixerReconnectReapply = false;
             }
             finally
@@ -8056,6 +8150,17 @@ namespace HeelsDesignLinker
 
             // RuleSet 选择器
             DrawRuleSetSelector();
+
+            ImGui.Separator();
+            var clearWeapons = Configuration.ClearGlamourerWeaponsOnChange;
+            if (ImGui.Checkbox(Localization.ClearGlamourerWeaponsOnChangeLabel, ref clearWeapons))
+            {
+                Configuration.ClearGlamourerWeaponsOnChange = clearWeapons;
+                SaveConfig();
+            }
+
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(Localization.ClearGlamourerWeaponsOnChangeTooltip);
 
             ImGui.Separator();
             DrawRulesActionGuide();

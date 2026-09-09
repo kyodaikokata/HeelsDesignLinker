@@ -45,4 +45,43 @@ internal static class InventoryEquipmentReader
 
         return true;
     }
+
+    public static unsafe bool TryGetItemId(EquipSlot slot, out uint itemId)
+    {
+        itemId = 0;
+        var inventoryManager = InventoryManager.Instance();
+        if (inventoryManager == null)
+            return false;
+
+        var container = inventoryManager->GetInventoryContainer(InventoryType.EquippedItems);
+        if (container == null)
+            return false;
+
+        var equipSlotIndex = slot switch
+        {
+            EquipSlot.MainHand => 0,
+            EquipSlot.OffHand => 1,
+            EquipSlot.Head => 2,
+            EquipSlot.Body => 3,
+            EquipSlot.Hands => 4,
+            EquipSlot.Legs => 6,
+            EquipSlot.Feet => 7,
+            EquipSlot.Ears => 8,
+            EquipSlot.Neck => 9,
+            EquipSlot.Wrists => 10,
+            EquipSlot.RFinger => 11,
+            EquipSlot.LFinger => 12,
+            _ => -1,
+        };
+
+        if (equipSlotIndex < 0)
+            return false;
+
+        var item = container->GetInventorySlot(equipSlotIndex);
+        if (item == null)
+            return false;
+
+        itemId = item->ItemId;
+        return true;
+    }
 }

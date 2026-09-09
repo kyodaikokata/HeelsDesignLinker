@@ -4,10 +4,19 @@ namespace HeelsDesignLinker
 
     public static class Changelog
     {
-        public const string CurrentVersion = "1.4.2.31";
+        public const string CurrentVersion = "1.4.2.32";
 
         public static readonly ChangelogEntry[] Entries =
         [
+            new(
+                "1.4.2.32",
+                "2026-09-09",
+                [
+                    "新增规则页开关（默认开）：主手/副手变化时清除 Glamourer 主副手覆写，并重新匹配规则、必要时 apply（缓解驯兽师等换职残留武器）",
+                ],
+                [
+                    "Rules tab option (default on): clear Glamourer main/off-hand overrides on weapon change, rematch rules and apply if needed (helps Beastmaster job-switch weapon residue)",
+                ]),
             new(
                 "1.4.2.31",
                 "2026-09-09",

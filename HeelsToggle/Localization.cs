@@ -447,6 +447,12 @@ namespace HeelsDesignLinker
         public static string Cancel => IsChine ? "取消" : "Cancel";
         
         public static string HeightRules => IsChine ? "匹配规则" : "Match Rules";
+        public static string ClearGlamourerWeaponsOnChangeLabel => IsChine
+            ? "换主/副手时清除 Glamourer 武器覆写"
+            : "Clear Glamourer weapon overrides when main/off-hand changes";
+        public static string ClearGlamourerWeaponsOnChangeTooltip => IsChine
+            ? "主手或副手背包装备变化时（如换职），清除 Glamourer 对主/副手的 Apply 覆写，并重新匹配规则、必要时 apply。可缓解驯兽师等新职业残留上一职业武器的问题。默认开启。"
+            : "When main-hand or off-hand inventory changes (e.g. job switch), clear Glamourer Apply overrides on those slots, rematch rules, and apply if needed. Helps when a new job like Beastmaster keeps the previous job's weapons in Glamourer. On by default.";
         public static string HeightRulesOrderHint => IsChine
             ? "规则按从上到下的顺序匹配：命中第一条后不再检查后续规则（如果 / 否则如果 / 否则）。每条规则可组合高度条件与装备外观条件（读取 DrawObject 渲染结果）。最后一条可设为「否则」兜底；「否则」后不能再有规则。可拖拽左侧握把调整顺序。"
             : "Rules are evaluated top to bottom (if / else if / else). Each rule can combine height and rendered equipment conditions (DrawObject). The last rule may be an else fallback; rules after else are unreachable. Drag the left handle to reorder.";
